@@ -5,7 +5,7 @@ A dot on the Windows taskbar that shows what Claude Code is doing at a glance:
 | Dot | Meaning |
 |---|---|
 | 🟠 **Orange, pulsing, with a spinning arc** | Thinking: reading, writing or running commands |
-| 🟡 **Amber, blinking** | Waiting for you: a permission, a question or a plan to approve |
+| 🟡 **Amber, blinking** | Waiting for you: a permission, a plan to approve, or Claude finished its reply with a question |
 | 🟢 **Solid green** | Ready for the next request |
 | ⚫ **Gray** | No Claude Code session open |
 
@@ -102,12 +102,16 @@ Claude Code ──(official hooks)──► hook.py ──► ~/.claude/claude-s
 
 | Hook event | State |
 |---|---|
-| `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `SubagentStop`, `PreCompact` | thinking |
-| `PermissionRequest`, `PreToolUse` for `AskUserQuestion`/`ExitPlanMode`, `Notification` of type `permission_prompt`/`elicitation_dialog` | waiting for you |
-| `SessionStart`, `Stop`, `Notification` of type `idle_prompt` | ready |
+| `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PreCompact` | thinking |
+| `PermissionRequest`, `PreToolUse` for `AskUserQuestion`/`ExitPlanMode`, `Notification` of type `permission_prompt`/`elicitation_dialog`, `Stop` after a reply that ends with a question | waiting for you |
+| `SessionStart`, `Stop`, `Notification` of type `idle_prompt` (unless a question is pending) | ready |
+
+On `Stop`, the hook reads the end of the transcript to tell "done" from "done, and asking you something": a question in the Claude desktop app's next-step box, or a final message ending with `?`.
 | `SessionEnd` | removes the session |
 
 Esc doesn't fire any hook. So the widget checks the last lines of the session transcript and, if it finds `[Request interrupted by user`, shows "Ready".
+
+As a safety net, a session that stays "thinking" for 30 minutes with no hook event and no transcript write is shown as "Ready". That covers a missed `Stop`, such as Claude Code closing abruptly.
 
 To test without Claude: `python widget.py --demo` cycles through the states, and `python hook.py --test thinking|waiting|idle|clear` creates a test session.
 
@@ -119,5 +123,6 @@ See [SECURITY.md](SECURITY.md): what the widget reads and writes, what it never 
 
 - Windows only. Covers **Claude Code** (the Code tab of the desktop app, the terminal and VS Code). Doesn't cover claude.ai chat, the mobile app or cloud sessions.
 - After you approve a permission, the dot only turns orange again once the approved command finishes.
-- If Claude Code closes abruptly, the session stays listed. It disappears on its own after 8 h, or right away with "Clear old sessions".
+- If Claude Code closes abruptly, the session stays listed (as "Ready" after 30 minutes). It disappears on its own after 8 h, or right away with "Clear old sessions".
+- A single command that runs for more than 30 minutes without Claude writing anything shows as "Ready" until it finishes.
 - Doesn't work with `CLAUDE_CONFIG_DIR` pointing to a folder other than `~/.claude`.

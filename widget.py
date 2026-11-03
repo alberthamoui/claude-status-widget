@@ -38,6 +38,7 @@ POLL_MS = 400              # reading the session files
 FRAME_MS = 33              # animation (~30 fps)
 TASKBAR_MS = 250           # finds the taskbars, repositions and re-asserts "on top of the taskbar"
 STALE_SECONDS = 8 * 3600   # sessions with no events for longer than this are ignored
+INACTIVE_SECONDS = 30 * 60  # "thinking" with no hook event or transcript write for this long counts as ready
 SINGLE_INSTANCE_PORT = 47653
 
 TRANSPARENT = "#ff00fe"    # key color that Windows makes transparent (rounded corners)
@@ -172,6 +173,16 @@ def inside_claude_dir(path):
         return False
 
 
+def transcript_mtime(session):
+    path = session["transcript_path"]
+    if not path or not inside_claude_dir(path):
+        return 0.0
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return 0.0
+
+
 def was_interrupted(session, cache):
     """Esc in Claude Code doesn't fire the Stop hook; we detect it from the end of the transcript."""
     path = session["transcript_path"]
@@ -244,6 +255,12 @@ def read_sessions(interrupt_cache):
             interrupted_at = was_interrupted(s, interrupt_cache)
             if interrupted_at:
                 s.update(state="idle", detail="interrupted", since=interrupted_at)
+        if s["state"] == "thinking":
+            # A missed Stop (Claude Code closed abruptly, an event lost) would leave the dot
+            # orange forever; real work keeps firing hooks or writing the transcript.
+            last_activity = max(s["updated"], transcript_mtime(s))
+            if now - last_activity > INACTIVE_SECONDS:
+                s.update(state="idle", detail="inactive", since=last_activity)
         sessions.append(s)
     sessions.sort(key=lambda s: (-STATES[s["state"]]["priority"], -s["updated"]))
     return sessions

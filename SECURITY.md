@@ -7,7 +7,7 @@ The widget runs inside your Claude Code (its hooks are called on every Claude ac
 | | |
 |---|---|
 | **Writes** | `~/.claude/claude-status-widget/`: the copied files, one JSON per session and the widget settings. It also adds its own hooks to `~/.claude/settings.json`, with a backup first, and, only with `--startup`, creates `ClaudeStatusWidget.vbs` in the Windows Startup folder. |
-| **Reads** | The JSON Claude Code hands to the hook and, to detect Esc, the last ~6 KB of the session transcript (only `.jsonl` files inside `~/.claude`). |
+| **Reads** | The JSON Claude Code hands to the hook and the end of the session transcript (only `.jsonl` files inside `~/.claude`): the widget reads the last ~6 KB to detect Esc, and the hook reads the last 256 KB on `Stop` to see whether the reply ended with a question. Nothing read from the transcript is stored. |
 | **Stores per session** | State, tool name (e.g. `Bash`), project folder, transcript path, timestamps and the start of Claude Code notification text (e.g. "Claude needs your permission to use Bash"). |
 
 ## What it never does
