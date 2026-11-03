@@ -48,7 +48,8 @@ class InstallError(Exception):
 
 def check_requirements():
     if sys.platform != "win32":
-        raise InstallError("This widget currently only works on Windows 10/11.")
+        raise InstallError("This widget currently only works on Windows 10/11; macOS and Linux "
+                           "are not supported yet. Nothing was changed.")
     if sys.version_info < (3, 8):
         raise InstallError(f"Python 3.8 or newer is required (this is {sys.version.split()[0]}).")
     try:
