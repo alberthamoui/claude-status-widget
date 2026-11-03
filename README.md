@@ -1,5 +1,8 @@
 # Claude Status Widget
 
+> [!IMPORTANT]
+> **Windows only, for now.** It works on Windows 10 and 11. macOS and Linux are not supported yet: the installer stops with a message and changes nothing.
+
 A dot on the Windows taskbar that shows what Claude Code is doing at a glance:
 
 | Dot | Meaning |
@@ -9,7 +12,7 @@ A dot on the Windows taskbar that shows what Claude Code is doing at a glance:
 | 🟢 **Solid green** | Ready for the next request |
 | ⚫ **Gray** | No Claude Code session open |
 
-Requirements: Windows 10 or 11, Python 3.8+ and Claude Code.
+Requirements: **Windows 10 or 11**, Python 3.8+ and Claude Code.
 
 ## Install (the easy way)
 
@@ -23,7 +26,7 @@ Claude will download the project, show you what will change on your PC and ask f
 
 > This section is for the assistant doing the install. Follow the steps in order and check with the user before the steps marked **(confirm)**.
 
-1. **Check the system.** The widget only works on Windows. On another system, tell the user and stop.
+1. **Check the system.** The widget currently only works on Windows 10 and 11. On macOS, Linux or anything else, tell the user it isn't supported yet and stop: don't clone, install Python or change any settings.
 2. **Check Python:** `python -c "import sys, tkinter; print(sys.version)"`. It must be 3.8+ and have Tkinter.
    - If Python is missing **(confirm)**: `winget install -e --id Python.Python.3.12`, then open a new terminal.
    - Use the same command that worked here (`python` or `py`) in the next steps.
@@ -121,7 +124,7 @@ See [SECURITY.md](SECURITY.md): what the widget reads and writes, what it never 
 
 ## Limitations
 
-- Windows only. Covers **Claude Code** (the Code tab of the desktop app, the terminal and VS Code). Doesn't cover claude.ai chat, the mobile app or cloud sessions.
+- Windows only, for now (no macOS or Linux support yet). Covers **Claude Code** (the Code tab of the desktop app, the terminal and VS Code). Doesn't cover claude.ai chat, the mobile app or cloud sessions.
 - After you approve a permission, the dot only turns orange again once the approved command finishes.
 - If Claude Code closes abruptly, the session stays listed (as "Ready" after 30 minutes). It disappears on its own after 8 h, or right away with "Clear old sessions".
 - A single command that runs for more than 30 minutes without Claude writing anything shows as "Ready" until it finishes.
