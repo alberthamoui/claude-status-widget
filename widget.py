@@ -214,6 +214,7 @@ class StatusWidget:
         self.interrupt_cache = {}
         self.t0 = time.time()
         self.hidden = False
+        self.menu_open = False
         self.last_geometry = None
 
         self.root = tk.Tk()
@@ -318,6 +319,9 @@ class StatusWidget:
             self.last_geometry = geometry
 
         # Clicar na barra a traz para frente; reafirmamos o "sempre no topo".
+        # Com o menu aberto não: o widget passaria por cima dele e esconderia opções.
+        if self.menu_open:
+            return
         HWND_TOPMOST, SWP_NOSIZE, SWP_NOMOVE, SWP_NOACTIVATE = -1, 0x1, 0x2, 0x10
         hwnd = int(self.root.wm_frame(), 16)
         user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE)
@@ -387,7 +391,13 @@ class StatusWidget:
         menu.add_command(label="Limpar sessões antigas", command=self.clear_idle_sessions)
         menu.add_separator()
         menu.add_command(label="Sair", command=self.quit)
-        menu.tk_popup(event.x_root, event.y_root)
+        # No Windows o tk_popup só retorna quando o menu fecha.
+        self.menu_open = True
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+            self.menu_open = False
 
     def on_topmost(self):
         self.root.wm_attributes("-topmost", self.topmost.get())
