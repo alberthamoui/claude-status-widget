@@ -1,51 +1,51 @@
 # Claude Status Widget
 
-Uma bolinha na barra de tarefas do Windows que mostra, só de olhar, o que o Claude Code está fazendo:
+A dot on the Windows taskbar that shows what Claude Code is doing at a glance:
 
-| Bolinha | Significa |
+| Dot | Meaning |
 |---|---|
-| 🟠 **Laranja pulsando, com um arco girando** | Pensando: lendo, escrevendo ou rodando comandos |
-| 🟡 **Âmbar piscando** | Esperando você: permissão, pergunta ou plano para aprovar |
-| 🟢 **Verde fixo** | Pronto para o próximo pedido |
-| ⚫ **Cinza** | Nenhuma sessão do Claude Code aberta |
+| 🟠 **Orange, pulsing, with a spinning arc** | Thinking: reading, writing or running commands |
+| 🟡 **Amber, blinking** | Waiting for you: a permission, a question or a plan to approve |
+| 🟢 **Solid green** | Ready for the next request |
+| ⚫ **Gray** | No Claude Code session open |
 
-Requisitos: Windows 10 ou 11, Python 3.8+ e Claude Code.
+Requirements: Windows 10 or 11, Python 3.8+ and Claude Code.
 
-## Instalar (o jeito fácil)
+## Install (the easy way)
 
-Abra o Claude Code e mande:
+Open Claude Code and send:
 
-> Instale o widget deste repositório: https://github.com/alberthamoui/claude-widget
+> Install the widget from this repository: https://github.com/alberthamoui/claude-widget
 
-O Claude vai baixar o projeto, mostrar o que vai mudar no seu PC e pedir sua confirmação antes de instalar.
+Claude will download the project, show you what will change on your PC and ask for your confirmation before installing.
 
-## Instruções para o Claude
+## Instructions for Claude
 
-> Esta seção é para o assistente que estiver instalando. Siga os passos na ordem e confirme com o usuário antes dos passos marcados com **(confirmar)**.
+> This section is for the assistant doing the install. Follow the steps in order and check with the user before the steps marked **(confirm)**.
 
-1. **Confira o sistema.** O widget só funciona no Windows. Em outro sistema, avise o usuário e pare.
-2. **Confira o Python:** `python -c "import sys, tkinter; print(sys.version)"`. Precisa ser 3.8+ e ter Tkinter.
-   - Se faltar Python **(confirmar)**: `winget install -e --id Python.Python.3.12`, depois abra um terminal novo.
-   - Use o mesmo comando (`python` ou `py`) que funcionou aqui nos passos seguintes.
-3. **Baixe o repositório** **(confirmar a pasta)**, por exemplo em `%USERPROFILE%\claude-widget`:
+1. **Check the system.** The widget only works on Windows. On another system, tell the user and stop.
+2. **Check Python:** `python -c "import sys, tkinter; print(sys.version)"`. It must be 3.8+ and have Tkinter.
+   - If Python is missing **(confirm)**: `winget install -e --id Python.Python.3.12`, then open a new terminal.
+   - Use the same command that worked here (`python` or `py`) in the next steps.
+3. **Download the repository** **(confirm the folder)**, for example into `%USERPROFILE%\claude-widget`:
    ```bash
    git clone https://github.com/alberthamoui/claude-widget.git "%USERPROFILE%\claude-widget"
    ```
-   Se já existir, atualize com `git -C "%USERPROFILE%\claude-widget" pull`.
-4. **Leia o `install.py` antes de rodar.** Ele é curto e diz no topo tudo o que altera.
-5. **Instale** **(confirmar)**. Mostre ao usuário o que vai mudar: o `~/.claude/settings.json` ganha hooks, com backup antes. Pergunte também se ele quer que o widget abra junto com o Windows.
+   If it already exists, update it with `git -C "%USERPROFILE%\claude-widget" pull`.
+4. **Read `install.py` before running it.** It's short and states at the top everything it changes.
+5. **Install** **(confirm)**. Show the user what will change: `~/.claude/settings.json` gets hooks added, with a backup first. Also ask whether they want the widget to open when Windows starts.
    ```bash
    python "%USERPROFILE%\claude-widget\install.py" --startup
    ```
-   Sem abrir junto com o Windows: o mesmo comando sem `--startup`.
-6. **Confira** se o instalador terminou com `Pronto.` e se a bolinha apareceu na barra, ao lado do clima ou do botão Iniciar.
-7. **Avise o usuário:**
-   - as sessões do Claude Code que já estavam abertas podem precisar ser reiniciadas;
-   - os cliques funcionam em cima da bolinha: o botão direito abre o menu e o duplo clique mostra a versão com texto.
+   Without opening on Windows startup: the same command without `--startup`.
+6. **Check** that the installer ended with `Done.` and that the dot appeared on the taskbar, next to the weather or the Start button.
+7. **Tell the user:**
+   - Claude Code sessions that were already open may need a restart;
+   - clicks work on the dot itself: right-click opens the menu and double-click shows the version with text.
 
-Se o `install.py` mostrar `Erro:`, ele não alterou nada. Mostre a mensagem ao usuário.
+If `install.py` prints `Error:`, it changed nothing. Show the message to the user.
 
-## Instalar manualmente
+## Install manually
 
 ```bash
 git clone https://github.com/alberthamoui/claude-widget.git
@@ -53,71 +53,71 @@ cd claude-widget
 python install.py --startup
 ```
 
-O instalador copia os arquivos para `~/.claude/claude-status-widget/`. Depois disso, a pasta clonada pode ser apagada.
+The installer copies the files to `~/.claude/claude-status-widget/`. After that, the cloned folder can be deleted.
 
-## Atualizar
+## Update
 
-Baixe a versão nova e rode o instalador de novo. Ele fecha o widget antigo, troca os arquivos e abre o novo, sem duplicar os hooks:
+Download the new version and run the installer again. It closes the old widget, replaces the files and opens the new one, without duplicating the hooks:
 
 ```bash
 git -C "%USERPROFILE%\claude-widget" pull
 python "%USERPROFILE%\claude-widget\install.py" --startup
 ```
 
-## Uso
+## Usage
 
-Os cliques só funcionam em cima da bolinha.
+Clicks only work on the dot itself.
 
-- **Botão direito:** abre o menu.
-  - Lista das sessões abertas, com estado, projeto e o que cada uma está fazendo.
-  - **Fixar na barra de tarefas:** desmarcado, o widget vira uma janela solta que você pode pôr em qualquer lugar da tela.
-  - **Som ao aguardar você:** toca um aviso quando o Claude começa a esperar você.
-  - **Modo compacto / normal:** alterna entre só a bolinha e a versão com texto.
-  - **Limpar sessões antigas:** tira da lista as sessões que já terminaram.
-  - **Sair:** fecha o widget. Para reabrir: `pythonw "%USERPROFILE%\.claude\claude-status-widget\widget.py"`.
-- **Duplo clique:** faz o mesmo que "Modo compacto / normal".
-- **Arrastar:** move a bolinha ao longo da barra. A posição fica salva.
+- **Right-click:** opens the menu.
+  - List of open sessions, with the state, project and what each one is doing.
+  - **Pin to taskbar:** when unchecked, the widget becomes a free window you can put anywhere on the screen.
+  - **Sound when waiting for you:** plays an alert when Claude starts waiting for you.
+  - **Compact / normal mode:** switches between just the dot and the version with text.
+  - **Clear old sessions:** removes finished sessions from the list.
+  - **Quit:** closes the widget. To reopen it: `pythonw "%USERPROFILE%\.claude\claude-status-widget\widget.py"`.
+- **Double-click:** same as "Compact / normal mode".
+- **Drag:** moves the dot along the taskbar. The position is saved.
 
-Com várias sessões abertas, a bolinha mostra a mais urgente: esperando você > pensando > pronto. Ela também some quando um vídeo ou jogo está em tela cheia.
+With several sessions open, the dot shows the most urgent one: waiting for you > thinking > ready. It also hides while a video or game is fullscreen.
 
-## Desinstalar
+## Uninstall
 
 ```bash
 python "%USERPROFILE%\.claude\claude-status-widget\install.py" --uninstall
 ```
 
-Remove os hooks (mantendo os seus), a inicialização automática e a pasta do widget.
+Removes the hooks (keeping yours), the startup entry and the widget folder.
 
-## Como funciona
+## How it works
 
 ```
-Claude Code ──(hooks oficiais)──► hook.py ──► ~/.claude/claude-status-widget/sessions/<id>.json
+Claude Code ──(official hooks)──► hook.py ──► ~/.claude/claude-status-widget/sessions/<id>.json
                                                          ▲
-                                         widget.py (Tkinter) lê a cada 400 ms
+                                         widget.py (Tkinter) reads every 400 ms
 ```
 
-- **Captura:** pelos [hooks do Claude Code](https://docs.claude.com/en/docs/claude-code/hooks), o sistema oficial de eventos. Não depende de ler a tela nem o tráfego de rede.
-- **Ponte:** um arquivo JSON por sessão, gravado de forma atômica.
-- **Interface:** Python + Tkinter, que já vêm com o Python. Nenhum `pip install`.
+- **Capture:** through [Claude Code hooks](https://docs.claude.com/en/docs/claude-code/hooks), the official event system. It doesn't depend on reading the screen or network traffic.
+- **Bridge:** one JSON file per session, written atomically.
+- **Interface:** Python + Tkinter, both included with Python. No `pip install`.
 
-| Evento do hook | Estado |
+| Hook event | State |
 |---|---|
-| `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `SubagentStop`, `PreCompact` | pensando |
-| `PermissionRequest`, `PreToolUse` de `AskUserQuestion`/`ExitPlanMode`, `Notification` do tipo `permission_prompt`/`elicitation_dialog` | esperando você |
-| `SessionStart`, `Stop`, `Notification` do tipo `idle_prompt` | pronto |
-| `SessionEnd` | remove a sessão |
+| `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `SubagentStop`, `PreCompact` | thinking |
+| `PermissionRequest`, `PreToolUse` for `AskUserQuestion`/`ExitPlanMode`, `Notification` of type `permission_prompt`/`elicitation_dialog` | waiting for you |
+| `SessionStart`, `Stop`, `Notification` of type `idle_prompt` | ready |
+| `SessionEnd` | removes the session |
 
-O Esc não dispara nenhum hook. Por isso o widget olha as últimas linhas do transcript da sessão e, se encontrar `[Request interrupted by user`, mostra "Pronto".
+Esc doesn't fire any hook. So the widget checks the last lines of the session transcript and, if it finds `[Request interrupted by user`, shows "Ready".
 
-Para testar sem o Claude: `python widget.py --demo` alterna os estados, e `python hook.py --test thinking|waiting|idle|clear` cria uma sessão de teste.
+To test without Claude: `python widget.py --demo` cycles through the states, and `python hook.py --test thinking|waiting|idle|clear` creates a test session.
 
-## Segurança
+## Security
 
-Veja [SECURITY.md](SECURITY.md): o que o widget lê e grava, o que ele nunca faz e como reportar um problema.
+See [SECURITY.md](SECURITY.md): what the widget reads and writes, what it never does and how to report a problem.
 
-## Limitações
+## Limitations
 
-- Só Windows. Cobre o **Claude Code** (aba Code do app desktop, terminal e VS Code). Não cobre o chat do claude.ai, o app do celular nem sessões na nuvem.
-- Depois que você aprova uma permissão, a bolinha só volta para laranja quando o comando aprovado termina.
-- Se o Claude Code fechar abruptamente, a sessão continua na lista. Ela some sozinha após 8 h, ou na hora em "Limpar sessões antigas".
-- Não funciona com `CLAUDE_CONFIG_DIR` apontando para outra pasta que não `~/.claude`.
+- Windows only. Covers **Claude Code** (the Code tab of the desktop app, the terminal and VS Code). Doesn't cover claude.ai chat, the mobile app or cloud sessions.
+- After you approve a permission, the dot only turns orange again once the approved command finishes.
+- If Claude Code closes abruptly, the session stays listed. It disappears on its own after 8 h, or right away with "Clear old sessions".
+- Doesn't work with `CLAUDE_CONFIG_DIR` pointing to a folder other than `~/.claude`.

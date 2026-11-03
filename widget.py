@@ -1,23 +1,23 @@
 """
-Widget que mostra o estado do Claude Code em tempo real.
+Widget that shows the state of Claude Code in real time.
 
-Lê os arquivos gravados pelo hook.py em ~/.claude/claude-status-widget/sessions/
-e exibe a sessão mais urgente (waiting > thinking > idle).
+Reads the files written by hook.py in ~/.claude/claude-status-widget/sessions/
+and shows the most urgent session (waiting > thinking > idle).
 
-Dois modos:
-    flutuante         janela solta, sempre no topo, em qualquer lugar da tela
-    barra de tarefas  encaixado no espaço livre da barra (ao lado do clima)
+Two modes:
+    floating   free window, always on top, anywhere on the screen
+    taskbar    docked in the empty space of the taskbar (next to the weather)
 
-Uso:
-    pythonw widget.py              (sem janela de console, usa o último modo)
-    python  widget.py --taskbar    (muda para o modo barra de tarefas e salva)
-    python  widget.py --floating   (muda para o modo flutuante e salva)
-    python  widget.py --demo       (alterna os estados sozinho, para testar o visual)
+Usage:
+    pythonw widget.py              (no console window, uses the last mode)
+    python  widget.py --taskbar    (switches to taskbar mode and saves it)
+    python  widget.py --floating   (switches to floating mode and saves it)
+    python  widget.py --demo       (cycles through the states, to test the look)
 
-Controles:
-    arrastar com o botão esquerdo  -> mover (na barra, só na horizontal)
-    duplo clique                   -> modo compacto (só a bolinha)
-    botão direito                  -> menu (sessões, modo, som, sair)
+Controls:
+    drag with the left button  -> move (on the taskbar, horizontally only)
+    double-click               -> compact mode (just the dot)
+    right-click                -> menu (sessions, mode, sound, quit)
 """
 import json
 import math
@@ -32,15 +32,15 @@ CLAUDE_DIR = os.path.realpath(os.path.join(os.path.expanduser("~"), ".claude"))
 BASE_DIR = os.path.join(CLAUDE_DIR, "claude-status-widget")
 SESSIONS_DIR = os.path.join(BASE_DIR, "sessions")
 CONFIG_PATH = os.path.join(BASE_DIR, "widget_config.json")
-QUIT_FLAG = os.path.join(BASE_DIR, "quit.flag")  # o instalador cria para fechar o widget ao atualizar
+QUIT_FLAG = os.path.join(BASE_DIR, "quit.flag")  # created by the installer to close the widget on update
 
-POLL_MS = 400              # leitura dos arquivos de sessão
-FRAME_MS = 33              # animação (~30 fps)
-TASKBAR_MS = 250           # reposiciona e reafirma o "por cima" da barra
-STALE_SECONDS = 8 * 3600   # sessões sem eventos há mais que isso são ignoradas
+POLL_MS = 400              # reading the session files
+FRAME_MS = 33              # animation (~30 fps)
+TASKBAR_MS = 250           # repositions and re-asserts "on top of the taskbar"
+STALE_SECONDS = 8 * 3600   # sessions with no events for longer than this are ignored
 SINGLE_INSTANCE_PORT = 47653
 
-TRANSPARENT = "#ff00fe"    # cor-chave que o Windows torna transparente (cantos arredondados)
+TRANSPARENT = "#ff00fe"    # key color that Windows makes transparent (rounded corners)
 
 THEMES = {
     "floating":      {"bg": "#1e1e22", "border": "#34343c", "text": "#f2f2f2", "sub": "#9a9aa5"},
@@ -49,10 +49,10 @@ THEMES = {
 }
 
 STATES = {
-    "thinking": {"label": "Pensando", "color": "#d97757", "priority": 2},
-    "waiting":  {"label": "Aguardando você", "color": "#f5b942", "priority": 3},
-    "idle":     {"label": "Pronto", "color": "#4ade80", "priority": 1},
-    "offline":  {"label": "Nenhuma sessão", "color": "#6b6b75", "priority": 0},
+    "thinking": {"label": "Thinking", "color": "#d97757", "priority": 2},
+    "waiting":  {"label": "Waiting for you", "color": "#f5b942", "priority": 3},
+    "idle":     {"label": "Ready", "color": "#4ade80", "priority": 1},
+    "offline":  {"label": "No session", "color": "#6b6b75", "priority": 0},
 }
 
 INTERRUPT_MARKER = "[Request interrupted by user"
@@ -93,7 +93,7 @@ def taskbar_window():
 
 
 def fullscreen_over(taskbar):
-    """True se a janela em primeiro plano ocupa o monitor inteiro da barra (vídeo, jogo...)."""
+    """True if the foreground window covers the whole taskbar monitor (video, game...)."""
     hwnd = user32.GetForegroundWindow()
     if not hwnd:
         return False
@@ -121,7 +121,7 @@ def light_taskbar():
         return False
 
 
-# --------------------------------------------------------------------------- dados
+# --------------------------------------------------------------------------- data
 
 def load_json(path, default):
     try:
@@ -132,16 +132,16 @@ def load_json(path, default):
 
 
 def inside_claude_dir(path):
-    """Só lemos transcripts do próprio Claude Code, nunca um caminho qualquer vindo do JSON."""
+    """Only Claude Code's own transcripts are read, never an arbitrary path taken from the JSON."""
     try:
         real = os.path.realpath(path)
         return real.endswith(".jsonl") and os.path.commonpath([real, CLAUDE_DIR]) == CLAUDE_DIR
-    except ValueError:  # drives diferentes, caminho inválido
+    except ValueError:  # different drives, invalid path
         return False
 
 
 def was_interrupted(session, cache):
-    """Esc no Claude Code não dispara o hook Stop; detectamos pelo fim do transcript."""
+    """Esc in Claude Code doesn't fire the Stop hook; we detect it from the end of the transcript."""
     path = session["transcript_path"]
     if not path or not inside_claude_dir(path):
         return None
@@ -169,7 +169,7 @@ def was_interrupted(session, cache):
 
 
 def clean_session(raw, filename):
-    """Aceita só os campos e tipos esperados; um JSON estranho é ignorado em vez de derrubar o widget."""
+    """Accepts only the expected fields and types; an odd JSON is ignored instead of crashing the widget."""
     if not isinstance(raw, dict) or raw.get("state") not in STATES or raw["state"] == "offline":
         return None
 
@@ -211,7 +211,7 @@ def read_sessions(interrupt_cache):
         if s["state"] != "idle":
             interrupted_at = was_interrupted(s, interrupt_cache)
             if interrupted_at:
-                s.update(state="idle", detail="interrompido", since=interrupted_at)
+                s.update(state="idle", detail="interrupted", since=interrupted_at)
         sessions.append(s)
     sessions.sort(key=lambda s: (-STATES[s["state"]]["priority"], -s["updated"]))
     return sessions
@@ -219,7 +219,7 @@ def read_sessions(interrupt_cache):
 
 def project_name(session):
     cwd = session.get("cwd") or ""
-    return os.path.basename(cwd.rstrip("\\/")) or cwd or "sessão"
+    return os.path.basename(cwd.rstrip("\\/")) or cwd or "session"
 
 
 def fmt_elapsed(seconds):
@@ -230,7 +230,7 @@ def fmt_elapsed(seconds):
 
 
 def blend(c1, c2, t):
-    """Mistura duas cores hex; t=0 -> c1, t=1 -> c2."""
+    """Blends two hex colors; t=0 -> c1, t=1 -> c2."""
     a = [int(c1[i:i + 2], 16) for i in (1, 3, 5)]
     b = [int(c2[i:i + 2], 16) for i in (1, 3, 5)]
     return "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(a, b))
@@ -257,18 +257,18 @@ class StatusWidget:
 
         self.root = tk.Tk()
         self.root.title("Claude Status")
-        self.root.overrideredirect(True)  # sem borda e fora da barra de tarefas
+        self.root.overrideredirect(True)  # borderless and not shown in the taskbar
         self.root.configure(bg=TRANSPARENT)
         try:
             self.root.wm_attributes("-transparentcolor", TRANSPARENT)
         except tk.TclError:
-            pass  # fora do Windows: cantos ficam quadrados
+            pass  # outside Windows: corners stay square
 
-        # Escala para monitores com DPI alto (Tk escala fontes, mas não pixels do canvas).
+        # Scale for high-DPI monitors (Tk scales fonts, but not canvas pixels).
         self.s = max(1.0, float(self.root.tk.call("tk", "scaling")) / (96 / 72))
         self.taskbar_height = int(48 * self.s)
 
-        # Padrão para quem acabou de instalar: só a bolinha, na barra de tarefas.
+        # Default for a fresh install: just the dot, on the taskbar.
         self.on_taskbar = tk.BooleanVar(value=self.config.get("mode", "taskbar") == "taskbar" and user32 is not None)
         self.topmost = tk.BooleanVar(value=self.config.get("topmost", True))
         self.beep = tk.BooleanVar(value=self.config.get("beep", False))
@@ -293,7 +293,7 @@ class StatusWidget:
         self.animate()
         self.taskbar_tick()
 
-    # ---- geometria e configuração
+    # ---- geometry and settings
 
     def update_theme(self):
         if self.on_taskbar.get():
@@ -327,13 +327,13 @@ class StatusWidget:
         self.canvas.config(width=w, height=h)
 
     def place_on_taskbar(self):
-        """Encaixa o widget sobre a barra, à esquerda, e o mantém por cima dela."""
+        """Docks the widget over the taskbar, on the left, and keeps it on top of it."""
         taskbar = taskbar_window()
         visible = False
         if taskbar and user32.IsWindowVisible(taskbar):
             left, top, right, bottom = window_rect(taskbar)
             bottom = min(bottom, self.root.winfo_screenheight())
-            # barra com ocultação automática fica quase toda fora da tela
+            # an auto-hidden taskbar sits almost entirely off screen
             visible = bottom - top > 20 and not fullscreen_over(taskbar)
 
         if not visible:
@@ -357,8 +357,8 @@ class StatusWidget:
             self.canvas.config(width=w, height=h)
             self.last_geometry = geometry
 
-        # Clicar na barra a traz para frente; reafirmamos o "sempre no topo".
-        # Com o menu aberto não: o widget passaria por cima dele e esconderia opções.
+        # Clicking the taskbar brings it to the front; we re-assert "always on top".
+        # Not while the menu is open: the widget would cover it and hide options.
         if self.menu_open:
             return
         HWND_TOPMOST, SWP_NOSIZE, SWP_NOMOVE, SWP_NOACTIVATE = -1, 0x1, 0x2, 0x10
@@ -411,7 +411,7 @@ class StatusWidget:
         else:
             self.root.geometry(f"+{event.x_root - dx}+{event.y_root - dy}")
 
-    # ---- menu de contexto
+    # ---- context menu
 
     def show_menu(self, event):
         menu = tk.Menu(self.root, tearoff=0)
@@ -422,19 +422,19 @@ class StatusWidget:
                     label += f"  ·  {s['detail']}"
                 menu.add_command(label=label[:70], state="disabled")
         else:
-            menu.add_command(label="Nenhuma sessão do Claude Code ativa", state="disabled")
+            menu.add_command(label="No active Claude Code session", state="disabled")
         menu.add_separator()
         if user32:
-            menu.add_checkbutton(label="Fixar na barra de tarefas", variable=self.on_taskbar,
+            menu.add_checkbutton(label="Pin to taskbar", variable=self.on_taskbar,
                                  command=self.toggle_taskbar)
         if not self.on_taskbar.get():
-            menu.add_checkbutton(label="Sempre no topo", variable=self.topmost, command=self.on_topmost)
-        menu.add_checkbutton(label="Som ao aguardar você", variable=self.beep, command=self.save_config)
-        menu.add_command(label="Modo compacto / normal", command=self.toggle_compact)
-        menu.add_command(label="Limpar sessões antigas", command=self.clear_idle_sessions)
+            menu.add_checkbutton(label="Always on top", variable=self.topmost, command=self.on_topmost)
+        menu.add_checkbutton(label="Sound when waiting for you", variable=self.beep, command=self.save_config)
+        menu.add_command(label="Compact / normal mode", command=self.toggle_compact)
+        menu.add_command(label="Clear old sessions", command=self.clear_idle_sessions)
         menu.add_separator()
-        menu.add_command(label="Sair", command=self.quit)
-        # No Windows o tk_popup só retorna quando o menu fecha.
+        menu.add_command(label="Quit", command=self.quit)
+        # On Windows, tk_popup only returns once the menu closes.
         self.menu_open = True
         try:
             menu.tk_popup(event.x_root, event.y_root)
@@ -447,7 +447,7 @@ class StatusWidget:
         self.save_config()
 
     def clear_idle_sessions(self):
-        # Apaga pelo nome que o próprio os.listdir devolveu, nunca por um id lido de dentro do JSON.
+        # Deletes by the name os.listdir returned, never by an id read from inside the JSON.
         for s in self.sessions:
             if s["state"] == "idle" and s.get("file"):
                 try:
@@ -460,7 +460,7 @@ class StatusWidget:
         self.root.destroy()
 
     def quit_requested(self):
-        """O instalador pede para fechar (ao atualizar ou desinstalar) criando o quit.flag."""
+        """The installer asks the widget to close (on update or uninstall) by creating quit.flag."""
         try:
             requested = os.path.getmtime(QUIT_FLAG) >= self.t0 - 1
             os.remove(QUIT_FLAG)
@@ -470,7 +470,7 @@ class StatusWidget:
             self.quit()
         return requested
 
-    # ---- estado
+    # ---- state
 
     def poll(self):
         if self.quit_requested():
@@ -478,7 +478,7 @@ class StatusWidget:
         if self.demo:
             order = ["thinking", "waiting", "idle"]
             state = order[int((time.time() - self.t0) // 4) % 3]
-            self.sessions = [{"state": state, "cwd": "demo", "detail": "modo demo", "since": self.t0}]
+            self.sessions = [{"state": state, "cwd": "demo", "detail": "demo mode", "since": self.t0}]
         else:
             self.sessions = read_sessions(self.interrupt_cache)
 
@@ -493,7 +493,7 @@ class StatusWidget:
         self.last_state = state
         self.root.after(POLL_MS, self.poll)
 
-    # ---- desenho
+    # ---- drawing
 
     def rounded_rect(self, x1, y1, x2, y2, r, **kw):
         pts = [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2,
@@ -510,7 +510,7 @@ class StatusWidget:
         color = STATES[state]["color"]
         t = time.time()
 
-        # No modo compacto só a bolinha aparece: o fundo fica todo transparente.
+        # In compact mode only the dot shows: the background is fully transparent.
         if not self.compact:
             radius = 8 * s if self.on_taskbar.get() else h / 2 - 1
             self.rounded_rect(1, 1, w - 2, h - 2, radius, fill=bg, outline=self.theme["border"])
@@ -519,7 +519,7 @@ class StatusWidget:
         r = 7 * s
 
         if state == "thinking":
-            # bolinha pulsando + arco girando em volta
+            # pulsing dot + arc spinning around it
             pulse = (math.sin(t * 4) + 1) / 2
             rr = r * (0.8 + 0.25 * pulse)
             c.create_oval(cx - rr, cy - rr, cx + rr, cy + rr, fill=color, outline="")
@@ -528,7 +528,7 @@ class StatusWidget:
             c.create_arc(cx - ring, cy - ring, cx + ring, cy + ring, start=-start, extent=100,
                          style="arc", outline=color, width=max(2, int(2 * s)))
         elif state == "waiting":
-            # piscando com halo, para chamar atenção
+            # blinking with a halo, to get attention
             blink = (math.sin(t * 6) + 1) / 2
             halo = r + (3 + 4 * blink) * s
             c.create_oval(cx - halo, cy - halo, cx + halo, cy + halo,
@@ -542,7 +542,7 @@ class StatusWidget:
         self.root.after(FRAME_MS, self.animate)
 
     def fit(self, text, font, max_width):
-        """Corta o texto com reticências até caber na largura em pixels."""
+        """Truncates the text with an ellipsis until it fits the width in pixels."""
         if font.measure(text) <= max_width:
             return text
         while text and font.measure(text + "…") > max_width:
@@ -562,13 +562,13 @@ class StatusWidget:
                       fill=self.theme["text"], font=self.title_font)
 
         if state == "offline":
-            sub = "abra o Claude Code"
+            sub = "open Claude Code"
         else:
             elapsed = fmt_elapsed(time.time() - cur.get("since", time.time()))
             sub = f"{project_name(cur)}  ·  {elapsed}"
             if cur.get("detail") and state != "idle":
                 with_detail = f"{project_name(cur)}  ·  {cur['detail']}  ·  {elapsed}"
-                # sem espaço, o detalhe sai antes do cronômetro
+                # when space runs out, the detail goes before the timer
                 if self.sub_font.measure(with_detail) <= max_width:
                     sub = with_detail
         c.create_text(x, h / 2 + 9 * s, text=self.fit(sub, self.sub_font, max_width), anchor="w",
@@ -586,11 +586,11 @@ class StatusWidget:
 
 def main():
     try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(1)  # texto nítido e pixels reais da tela
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)  # crisp text and real screen pixels
     except Exception:
         pass
 
-    # Garante uma única instância do widget.
+    # Ensures a single instance of the widget.
     lock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         lock.bind(("127.0.0.1", SINGLE_INSTANCE_PORT))
