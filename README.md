@@ -38,7 +38,7 @@ Claude will download the project, show you what will change on your PC and ask f
    python "%USERPROFILE%\claude-widget\install.py" --startup
    ```
    Without opening on Windows startup: the same command without `--startup`.
-6. **Check** that the installer ended with `Done.` and that the dot appeared on the taskbar, next to the weather or the Start button.
+6. **Check** that the installer ended with `Done.` and that the dot appeared on the taskbar, just left of the Start button.
 7. **Tell the user:**
    - Claude Code sessions that were already open may need a restart;
    - clicks work on the dot itself: right-click opens the menu and double-click shows the version with text.
@@ -70,13 +70,13 @@ Clicks only work on the dot itself.
 
 - **Right-click:** opens the menu.
   - List of open sessions, with the state, project and what each one is doing.
-  - **Pin to taskbar:** when unchecked, the widget becomes a free window you can put anywhere on the screen.
+  - **Pin to taskbar:** one dot on every taskbar (every monitor), just left of the Start button, so it stays clear of the weather widget however wide it gets. When unchecked, the widget becomes a single free window you can put anywhere on the screen.
   - **Sound when waiting for you:** plays an alert when Claude starts waiting for you.
   - **Compact / normal mode:** switches between just the dot and the version with text.
   - **Clear old sessions:** removes finished sessions from the list.
   - **Quit:** closes the widget. To reopen it: `pythonw "%USERPROFILE%\.claude\claude-status-widget\widget.py"`.
 - **Double-click:** same as "Compact / normal mode".
-- **Drag:** moves the dot along the taskbar. The position is saved.
+- **Drag:** moves the dot along the taskbar. The distance from the Start button is saved and used on every monitor.
 
 With several sessions open, the dot shows the most urgent one: waiting for you > thinking > ready. It also hides while a video or game is fullscreen.
 

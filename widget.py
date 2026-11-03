@@ -6,7 +6,7 @@ and shows the most urgent session (waiting > thinking > idle).
 
 Two modes:
     floating   free window, always on top, anywhere on the screen
-    taskbar    docked in the empty space of the taskbar (next to the weather)
+    taskbar    one dot on every taskbar (every monitor), just left of the Start button
 
 Usage:
     pythonw widget.py              (no console window, uses the last mode)
@@ -36,7 +36,7 @@ QUIT_FLAG = os.path.join(BASE_DIR, "quit.flag")  # created by the installer to c
 
 POLL_MS = 400              # reading the session files
 FRAME_MS = 33              # animation (~30 fps)
-TASKBAR_MS = 250           # repositions and re-asserts "on top of the taskbar"
+TASKBAR_MS = 250           # finds the taskbars, repositions and re-asserts "on top of the taskbar"
 STALE_SECONDS = 8 * 3600   # sessions with no events for longer than this are ignored
 SINGLE_INSTANCE_PORT = 47653
 
@@ -57,6 +57,9 @@ STATES = {
 
 INTERRUPT_MARKER = "[Request interrupted by user"
 
+# Taskbar window class -> its child holding the app icons, which starts at the Start button.
+TASKBARS = {"Shell_TrayWnd": "ReBarWindow32", "Shell_SecondaryTrayWnd": "WorkerW"}
+
 
 # --------------------------------------------------------------------------- Windows
 
@@ -65,13 +68,16 @@ if sys.platform == "win32":
     from ctypes import wintypes
 
     user32 = ctypes.windll.user32
-    user32.FindWindowW.restype = wintypes.HWND
+    user32.FindWindowExW.restype = wintypes.HWND
+    user32.FindWindowExW.argtypes = [wintypes.HWND, wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR]
     user32.GetForegroundWindow.restype = wintypes.HWND
     user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
     user32.MonitorFromWindow.restype = wintypes.HMONITOR
     user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
     user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND] + [ctypes.c_int] * 4 + [wintypes.UINT]
     user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    EnumWindowsProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
     class MONITORINFO(ctypes.Structure):
         _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
@@ -88,27 +94,53 @@ def window_rect(hwnd):
     return r.left, r.top, r.right, r.bottom
 
 
-def taskbar_window():
-    return user32.FindWindowW("Shell_TrayWnd", None) if user32 else None
+def class_name(hwnd):
+    buf = ctypes.create_unicode_buffer(64)
+    user32.GetClassNameW(hwnd, buf, 64)
+    return buf.value
+
+
+def monitor_rect(hwnd):
+    info = MONITORINFO(cbSize=ctypes.sizeof(MONITORINFO))
+    user32.GetMonitorInfoW(user32.MonitorFromWindow(hwnd, 2), ctypes.byref(info))
+    m = info.rcMonitor
+    return m.left, m.top, m.right, m.bottom
+
+
+def taskbar_windows():
+    """Every visible taskbar (one per monitor) as {hwnd: window class}."""
+    found = {}
+
+    def collect(hwnd, _):
+        cls = class_name(hwnd)
+        if cls in TASKBARS and user32.IsWindowVisible(hwnd):
+            found[hwnd] = cls
+        return True
+
+    if user32:
+        user32.EnumWindows(EnumWindowsProc(collect), 0)
+    return found
+
+
+def apps_area(taskbar, cls):
+    """Rect of the taskbar's app icons, which starts at the Start button; None if not found."""
+    hwnd = user32.FindWindowExW(taskbar, None, TASKBARS[cls], None)
+    if not hwnd or not user32.IsWindowVisible(hwnd):
+        return None
+    rect = window_rect(hwnd)
+    return rect if rect[2] > rect[0] else None
 
 
 def fullscreen_over(taskbar):
-    """True if the foreground window covers the whole taskbar monitor (video, game...)."""
+    """True if the foreground window covers the whole monitor of this taskbar (video, game...)."""
     hwnd = user32.GetForegroundWindow()
-    if not hwnd:
+    if not hwnd or class_name(hwnd) in ("Progman", "WorkerW", *TASKBARS):
         return False
-    cls = ctypes.create_unicode_buffer(64)
-    user32.GetClassNameW(hwnd, cls, 64)
-    if cls.value in ("Progman", "WorkerW", "Shell_TrayWnd"):
+    if user32.MonitorFromWindow(hwnd, 2) != user32.MonitorFromWindow(taskbar, 2):
         return False
-    monitor = user32.MonitorFromWindow(hwnd, 2)
-    if monitor != user32.MonitorFromWindow(taskbar, 2):
-        return False
-    info = MONITORINFO(cbSize=ctypes.sizeof(MONITORINFO))
-    user32.GetMonitorInfoW(monitor, ctypes.byref(info))
-    m = info.rcMonitor
+    m = monitor_rect(taskbar)
     left, top, right, bottom = window_rect(hwnd)
-    return left <= m.left and top <= m.top and right >= m.right and bottom >= m.bottom
+    return left <= m[0] and top <= m[1] and right >= m[2] and bottom >= m[3]
 
 
 def light_taskbar():
@@ -238,6 +270,53 @@ def blend(c1, c2, t):
 
 # --------------------------------------------------------------------------- widget
 
+class View:
+    """One visible window of the widget: the floating one, or the dot on one taskbar."""
+
+    def __init__(self, app, taskbar=None, cls=None):
+        self.app = app
+        self.taskbar = taskbar
+        self.cls = cls
+        self.height = int(48 * app.s)  # height of its taskbar
+        self.hidden = False
+        self.last_geometry = None
+
+        self.win = tk.Toplevel(app.root)
+        self.win.overrideredirect(True)  # borderless and not shown in the taskbar
+        self.win.configure(bg=TRANSPARENT)
+        try:
+            self.win.wm_attributes("-transparentcolor", TRANSPARENT)
+        except tk.TclError:
+            pass  # outside Windows: corners stay square
+        self.win.wm_attributes("-topmost", True if taskbar else app.topmost.get())
+
+        self.canvas = tk.Canvas(self.win, bg=TRANSPARENT, highlightthickness=0, bd=0)
+        self.canvas.pack(fill="both", expand=True)
+        self.canvas.bind("<ButtonPress-1>", lambda e: app.start_drag(e, self))
+        self.canvas.bind("<B1-Motion>", lambda e: app.on_drag(e, self))
+        self.canvas.bind("<ButtonRelease-1>", lambda e: app.save_config())
+        self.canvas.bind("<Double-Button-1>", lambda e: app.toggle_compact())
+        self.canvas.bind("<Button-3>", app.show_menu)
+
+    def show(self, visible):
+        if visible and self.hidden:
+            self.win.deiconify()
+            self.hidden = False
+            self.last_geometry = None
+        elif not visible and not self.hidden:
+            self.win.withdraw()
+            self.hidden = True
+
+    def move(self, w, h, x, y):
+        if (w, h, x, y) != self.last_geometry:
+            self.win.geometry(f"{w}x{h}+{x}+{y}")
+            self.canvas.config(width=w, height=h)
+            self.last_geometry = (w, h, x, y)
+
+    def destroy(self):
+        self.win.destroy()
+
+
 class StatusWidget:
     def __init__(self, demo=False, mode=None):
         self.demo = demo
@@ -251,22 +330,16 @@ class StatusWidget:
         self.last_state = "offline"
         self.interrupt_cache = {}
         self.t0 = time.time()
-        self.hidden = False
         self.menu_open = False
-        self.last_geometry = None
+        self.views = {}  # taskbar hwnd (or "floating") -> View
 
+        # The root window stays hidden; each visible window is a View.
         self.root = tk.Tk()
         self.root.title("Claude Status")
-        self.root.overrideredirect(True)  # borderless and not shown in the taskbar
-        self.root.configure(bg=TRANSPARENT)
-        try:
-            self.root.wm_attributes("-transparentcolor", TRANSPARENT)
-        except tk.TclError:
-            pass  # outside Windows: corners stay square
+        self.root.withdraw()
 
         # Scale for high-DPI monitors (Tk scales fonts, but not canvas pixels).
         self.s = max(1.0, float(self.root.tk.call("tk", "scaling")) / (96 / 72))
-        self.taskbar_height = int(48 * self.s)
 
         # Default for a fresh install: just the dot, on the taskbar.
         self.on_taskbar = tk.BooleanVar(value=self.config.get("mode", "taskbar") == "taskbar" and user32 is not None)
@@ -275,18 +348,10 @@ class StatusWidget:
         self.compact = self.config.get("compact", True)
         self.update_theme()
 
-        self.canvas = tk.Canvas(self.root, bg=TRANSPARENT, highlightthickness=0, bd=0)
-        self.canvas.pack(fill="both", expand=True)
         self.title_font = tkfont.Font(family="Segoe UI Semibold", size=10)
         self.sub_font = tkfont.Font(family="Segoe UI", size=8)
 
-        self.canvas.bind("<ButtonPress-1>", self.start_drag)
-        self.canvas.bind("<B1-Motion>", self.on_drag)
-        self.canvas.bind("<ButtonRelease-1>", lambda e: self.save_config())
-        self.canvas.bind("<Double-Button-1>", lambda e: self.toggle_compact())
-        self.canvas.bind("<Button-3>", self.show_menu)
-
-        self.apply_geometry()
+        self.layout()
         if mode:
             self.save_config()
         self.poll()
@@ -298,76 +363,77 @@ class StatusWidget:
     def update_theme(self):
         if self.on_taskbar.get():
             self.theme = THEMES["taskbar_light" if light_taskbar() else "taskbar_dark"]
-            self.root.wm_attributes("-topmost", True)
         else:
             self.theme = THEMES["floating"]
-            self.root.wm_attributes("-topmost", self.topmost.get())
 
-    def size(self):
-        if self.on_taskbar.get():
-            h = max(int(24 * self.s), self.taskbar_height - int(10 * self.s))
-            return (h, h) if self.compact else (int(230 * self.s), h)
-        return (int(36 * self.s), int(36 * self.s)) if self.compact else (int(250 * self.s), int(52 * self.s))
+    def size(self, view):
+        s = self.s
+        if view.taskbar:
+            h = max(int(24 * s), view.height - int(10 * s))
+            return (h, h) if self.compact else (int(230 * s), h)
+        return (int(36 * s), int(36 * s)) if self.compact else (int(250 * s), int(52 * s))
 
-    def apply_geometry(self):
-        if self.on_taskbar.get():
-            self.last_geometry = None
-            self.place_on_taskbar()
-            return
-        if self.hidden:
-            self.root.deiconify()
-            self.hidden = False
-        w, h = self.size()
+    def layout(self):
+        """Creates or removes views so there is one per taskbar (or a single floating one)."""
+        wanted = taskbar_windows() if self.on_taskbar.get() else {"floating": None}
+        for key in list(self.views):
+            if key not in wanted:
+                self.views.pop(key).destroy()
+        for key, cls in wanted.items():
+            if key not in self.views:
+                taskbar = None if key == "floating" else key
+                self.views[key] = View(self, taskbar, cls)
+                if not taskbar:
+                    self.place_floating(self.views[key])
+
+    def place_floating(self, view):
+        w, h = self.size(view)
         sw = self.root.winfo_screenwidth()
         x = self.config_int("x", sw - w - int(24 * self.s))
         y = self.config_int("y", int(24 * self.s))
         x = min(max(0, x), sw - w)
         y = min(max(0, y), self.root.winfo_screenheight() - h)
-        self.root.geometry(f"{w}x{h}+{x}+{y}")
-        self.canvas.config(width=w, height=h)
+        view.last_geometry = None
+        view.move(w, h, x, y)
 
-    def place_on_taskbar(self):
-        """Docks the widget over the taskbar, on the left, and keeps it on top of it."""
-        taskbar = taskbar_window()
-        visible = False
-        if taskbar and user32.IsWindowVisible(taskbar):
-            left, top, right, bottom = window_rect(taskbar)
-            bottom = min(bottom, self.root.winfo_screenheight())
-            # an auto-hidden taskbar sits almost entirely off screen
-            visible = bottom - top > 20 and not fullscreen_over(taskbar)
-
+    def place_on_taskbar(self, view):
+        """Docks the view over its taskbar, just left of the Start button, and keeps it on top."""
+        left, top, right, bottom = window_rect(view.taskbar)
+        bottom = min(bottom, monitor_rect(view.taskbar)[3])
+        # an auto-hidden taskbar sits almost entirely off screen
+        visible = bottom - top > 20 and not fullscreen_over(view.taskbar)
+        view.show(visible)
         if not visible:
-            if not self.hidden:
-                self.root.withdraw()
-                self.hidden = True
             return
-        if self.hidden:
-            self.root.deiconify()
-            self.hidden = False
-            self.last_geometry = None
 
-        self.taskbar_height = bottom - top
-        w, h = self.size()
-        offset = self.config_int("taskbar_offset", int(64 * self.s))
-        x = min(max(left, left + offset), right - w)
-        y = top + (self.taskbar_height - h) // 2
-        geometry = (w, h, x, y)
-        if geometry != self.last_geometry:
-            self.root.geometry(f"{w}x{h}+{x}+{y}")
-            self.canvas.config(width=w, height=h)
-            self.last_geometry = geometry
+        view.height = bottom - top
+        w, h = self.size(view)
+        view.move(w, h, self.taskbar_x(view, left, w), top + (view.height - h) // 2)
 
         # Clicking the taskbar brings it to the front; we re-assert "always on top".
         # Not while the menu is open: the widget would cover it and hide options.
         if self.menu_open:
             return
         HWND_TOPMOST, SWP_NOSIZE, SWP_NOMOVE, SWP_NOACTIVATE = -1, 0x1, 0x2, 0x10
-        hwnd = int(self.root.wm_frame(), 16)
+        hwnd = int(view.win.wm_frame(), 16)
         user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE)
 
+    def taskbar_x(self, view, left, w):
+        """Just left of the Start button, between it and the weather widget, on any monitor."""
+        nearest = left
+        apps = apps_area(view.taskbar, view.cls)
+        if apps:
+            nearest = apps[0] - int(8 * self.s) - w
+        if nearest <= left:
+            # Start button at the very left (left-aligned taskbar): fall back to a fixed spot.
+            return left + max(0, self.config_int("taskbar_offset", 0))
+        return max(left, nearest - max(0, self.config_int("start_offset", 0)))
+
     def taskbar_tick(self):
-        if self.on_taskbar.get():
-            self.place_on_taskbar()
+        if self.on_taskbar.get() and not self.menu_open:
+            self.layout()
+            for view in self.views.values():
+                self.place_on_taskbar(view)
         self.root.after(TASKBAR_MS, self.taskbar_tick)
 
     def config_int(self, key, default):
@@ -379,8 +445,9 @@ class StatusWidget:
             mode="taskbar" if self.on_taskbar.get() else "floating",
             topmost=self.topmost.get(), beep=self.beep.get(), compact=self.compact,
         )
-        if not self.on_taskbar.get() and self.root.winfo_ismapped():
-            self.config.update(x=self.root.winfo_x(), y=self.root.winfo_y())
+        floating = self.views.get("floating")
+        if floating and floating.win.winfo_ismapped():
+            self.config.update(x=floating.win.winfo_x(), y=floating.win.winfo_y())
         try:
             os.makedirs(BASE_DIR, exist_ok=True)
             with open(CONFIG_PATH, "w", encoding="utf-8") as f:
@@ -388,28 +455,42 @@ class StatusWidget:
         except OSError:
             pass
 
+    def refresh(self):
+        for view in self.views.values():
+            if view.taskbar:
+                self.place_on_taskbar(view)
+            else:
+                self.place_floating(view)
+
     def toggle_compact(self):
         self.compact = not self.compact
-        self.apply_geometry()
+        self.refresh()
         self.save_config()
 
     def toggle_taskbar(self):
         self.update_theme()
-        self.apply_geometry()
+        self.layout()
+        self.refresh()
         self.save_config()
 
-    def start_drag(self, event):
+    def start_drag(self, event, view):
         self.drag_offset = (event.x, event.y)
 
-    def on_drag(self, event):
+    def on_drag(self, event, view):
         dx, dy = self.drag_offset
-        if self.on_taskbar.get():
-            taskbar = taskbar_window()
-            if taskbar:
-                self.config["taskbar_offset"] = event.x_root - dx - window_rect(taskbar)[0]
-                self.place_on_taskbar()
+        x = event.x_root - dx
+        if view.taskbar:
+            # The distance from the Start button is shared by the dots on every taskbar.
+            apps = apps_area(view.taskbar, view.cls)
+            left = window_rect(view.taskbar)[0]
+            nearest = apps[0] - int(8 * self.s) - self.size(view)[0] if apps else left
+            if nearest > left:
+                self.config["start_offset"] = nearest - x
+            else:
+                self.config["taskbar_offset"] = x - left
+            self.place_on_taskbar(view)
         else:
-            self.root.geometry(f"+{event.x_root - dx}+{event.y_root - dy}")
+            view.win.geometry(f"+{x}+{event.y_root - dy}")
 
     # ---- context menu
 
@@ -443,7 +524,9 @@ class StatusWidget:
             self.menu_open = False
 
     def on_topmost(self):
-        self.root.wm_attributes("-topmost", self.topmost.get())
+        floating = self.views.get("floating")
+        if floating:
+            floating.win.wm_attributes("-topmost", self.topmost.get())
         self.save_config()
 
     def clear_idle_sessions(self):
@@ -495,25 +578,29 @@ class StatusWidget:
 
     # ---- drawing
 
-    def rounded_rect(self, x1, y1, x2, y2, r, **kw):
-        pts = [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2,
-               x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r, x1, y1 + r, x1, y1]
-        return self.canvas.create_polygon(pts, smooth=True, **kw)
-
     def animate(self):
-        c = self.canvas
+        t = time.time()
+        for view in self.views.values():
+            if not view.hidden:
+                self.draw(view, t)
+        self.root.after(FRAME_MS, self.animate)
+
+    def draw(self, view, t):
+        c = view.canvas
         c.delete("all")
-        w, h = self.size()
+        w, h = self.size(view)
         s = self.s
         bg = self.theme["bg"]
         state = self.current["state"]
         color = STATES[state]["color"]
-        t = time.time()
 
         # In compact mode only the dot shows: the background is fully transparent.
         if not self.compact:
-            radius = 8 * s if self.on_taskbar.get() else h / 2 - 1
-            self.rounded_rect(1, 1, w - 2, h - 2, radius, fill=bg, outline=self.theme["border"])
+            r = 8 * s if view.taskbar else h / 2 - 1
+            x1, y1, x2, y2 = 1, 1, w - 2, h - 2
+            pts = [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2,
+                   x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r, x1, y1 + r, x1, y1]
+            c.create_polygon(pts, smooth=True, fill=bg, outline=self.theme["border"])
 
         cx, cy = (w / 2, h / 2) if self.compact else (h / 2 + 2 * s, h / 2)
         r = 7 * s
@@ -538,8 +625,7 @@ class StatusWidget:
             c.create_oval(cx - r, cy - r, cx + r, cy + r, fill=color, outline="")
 
         if not self.compact:
-            self.draw_text(w, h, state, color, t)
-        self.root.after(FRAME_MS, self.animate)
+            self.draw_text(c, w, h, state, color, t)
 
     def fit(self, text, font, max_width):
         """Truncates the text with an ellipsis until it fits the width in pixels."""
@@ -549,8 +635,8 @@ class StatusWidget:
             text = text[:-1]
         return text + "…"
 
-    def draw_text(self, w, h, state, color, t):
-        c, s, cur = self.canvas, self.s, self.current
+    def draw_text(self, c, w, h, state, color, t):
+        s, cur = self.s, self.current
         x = h + 4 * s
         others = len(self.sessions) - 1
         max_width = w - x - (34 * s if others > 0 else 10 * s)
