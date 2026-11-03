@@ -69,7 +69,7 @@ python "%USERPROFILE%\claude-widget\install.py" --startup
 Clicks only work on the dot itself.
 
 - **Right-click:** opens the menu.
-  - List of open sessions, with the state, project and what each one is doing.
+  - List of open sessions, with the state, project and what each one is doing. Each one opens a submenu with **Remove from list**, which hides that conversation from the widget (it doesn't close it in Claude, and it comes back if that session does something again).
   - **Pin to taskbar:** one dot on every taskbar (every monitor), just left of the Start button, so it stays clear of the weather widget however wide it gets. When unchecked, the widget becomes a single free window you can put anywhere on the screen.
   - **Sound when waiting for you:** plays an alert when Claude starts waiting for you.
   - **Compact / normal mode:** switches between just the dot and the version with text.

@@ -600,7 +600,14 @@ class StatusWidget:
                 label = f"{STATES[s['state']]['label']}  ·  {project_name(s)}"
                 if s.get("detail"):
                     label += f"  ·  {s['detail']}"
-                menu.add_command(label=label[:70], state="disabled")
+                if s.get("file"):
+                    # Each conversation opens a submenu, so it can be removed on its own.
+                    submenu = tk.Menu(menu, tearoff=0)
+                    submenu.add_command(label="Remove from list",
+                                        command=lambda name=s["file"]: self.remove_session(name))
+                    menu.add_cascade(label=label[:70], menu=submenu)
+                else:
+                    menu.add_command(label=label[:70], state="disabled")
         else:
             menu.add_command(label="No active Claude Code session", state="disabled")
         menu.add_separator()
@@ -628,14 +635,22 @@ class StatusWidget:
             floating.win.wm_attributes("-topmost", self.topmost.get())
         self.save_config()
 
+    def remove_session(self, name):
+        """Removes one conversation from the list (it comes back if that session acts again)."""
+        # Only a plain file name os.listdir returned, never a path or an id read from the JSON.
+        if os.path.basename(name) != name or not name.endswith(".json"):
+            return
+        try:
+            os.remove(os.path.join(SESSIONS_DIR, name))
+        except OSError:
+            pass
+        self.sessions = [s for s in self.sessions if s.get("file") != name]
+        self.current = self.sessions[0] if self.sessions else {"state": "offline"}
+
     def clear_idle_sessions(self):
-        # Deletes by the name os.listdir returned, never by an id read from inside the JSON.
-        for s in self.sessions:
+        for s in list(self.sessions):
             if s["state"] == "idle" and s.get("file"):
-                try:
-                    os.remove(os.path.join(SESSIONS_DIR, s["file"]))
-                except OSError:
-                    pass
+                self.remove_session(s["file"])
 
     def quit(self):
         self.save_config()
