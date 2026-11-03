@@ -5,7 +5,7 @@ A dot on the Windows taskbar that shows what Claude Code is doing at a glance:
 | Dot | Meaning |
 |---|---|
 | 🟠 **Orange, pulsing, with a spinning arc** | Thinking: reading, writing or running commands |
-| 🟡 **Amber, blinking** | Waiting for you: a permission, a question or a plan to approve |
+| 🟡 **Amber, blinking** | Waiting for you: a permission, a plan to approve, or Claude finished its reply with a question |
 | 🟢 **Solid green** | Ready for the next request |
 | ⚫ **Gray** | No Claude Code session open |
 
@@ -38,7 +38,7 @@ Claude will download the project, show you what will change on your PC and ask f
    python "%USERPROFILE%\claude-widget\install.py" --startup
    ```
    Without opening on Windows startup: the same command without `--startup`.
-6. **Check** that the installer ended with `Done.` and that the dot appeared on the taskbar, next to the weather or the Start button.
+6. **Check** that the installer ended with `Done.` and that the dot appeared on the taskbar, just left of the Start button.
 7. **Tell the user:**
    - Claude Code sessions that were already open may need a restart;
    - clicks work on the dot itself: right-click opens the menu and double-click shows the version with text.
@@ -70,13 +70,13 @@ Clicks only work on the dot itself.
 
 - **Right-click:** opens the menu.
   - List of open sessions, with the state, project and what each one is doing.
-  - **Pin to taskbar:** when unchecked, the widget becomes a free window you can put anywhere on the screen.
+  - **Pin to taskbar:** one dot on every taskbar (every monitor), just left of the Start button, so it stays clear of the weather widget however wide it gets. When unchecked, the widget becomes a single free window you can put anywhere on the screen.
   - **Sound when waiting for you:** plays an alert when Claude starts waiting for you.
   - **Compact / normal mode:** switches between just the dot and the version with text.
   - **Clear old sessions:** removes finished sessions from the list.
   - **Quit:** closes the widget. To reopen it: `pythonw "%USERPROFILE%\.claude\claude-status-widget\widget.py"`.
 - **Double-click:** same as "Compact / normal mode".
-- **Drag:** moves the dot along the taskbar. The position is saved.
+- **Drag:** moves the dot along the taskbar. The distance from the Start button is saved and used on every monitor.
 
 With several sessions open, the dot shows the most urgent one: waiting for you > thinking > ready. It also hides while a video or game is fullscreen.
 
@@ -102,12 +102,16 @@ Claude Code ──(official hooks)──► hook.py ──► ~/.claude/claude-s
 
 | Hook event | State |
 |---|---|
-| `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `SubagentStop`, `PreCompact` | thinking |
-| `PermissionRequest`, `PreToolUse` for `AskUserQuestion`/`ExitPlanMode`, `Notification` of type `permission_prompt`/`elicitation_dialog` | waiting for you |
-| `SessionStart`, `Stop`, `Notification` of type `idle_prompt` | ready |
+| `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PreCompact` | thinking |
+| `PermissionRequest`, `PreToolUse` for `AskUserQuestion`/`ExitPlanMode`, `Notification` of type `permission_prompt`/`elicitation_dialog`, `Stop` after a reply that ends with a question | waiting for you |
+| `SessionStart`, `Stop`, `Notification` of type `idle_prompt` (unless a question is pending) | ready |
+
+On `Stop`, the hook reads the end of the transcript to tell "done" from "done, and asking you something": a question in the Claude desktop app's next-step box, or a final message ending with `?`.
 | `SessionEnd` | removes the session |
 
 Esc doesn't fire any hook. So the widget checks the last lines of the session transcript and, if it finds `[Request interrupted by user`, shows "Ready".
+
+As a safety net, a session that stays "thinking" for 30 minutes with no hook event and no transcript write is shown as "Ready". That covers a missed `Stop`, such as Claude Code closing abruptly.
 
 To test without Claude: `python widget.py --demo` cycles through the states, and `python hook.py --test thinking|waiting|idle|clear` creates a test session.
 
@@ -119,5 +123,6 @@ See [SECURITY.md](SECURITY.md): what the widget reads and writes, what it never 
 
 - Windows only. Covers **Claude Code** (the Code tab of the desktop app, the terminal and VS Code). Doesn't cover claude.ai chat, the mobile app or cloud sessions.
 - After you approve a permission, the dot only turns orange again once the approved command finishes.
-- If Claude Code closes abruptly, the session stays listed. It disappears on its own after 8 h, or right away with "Clear old sessions".
+- If Claude Code closes abruptly, the session stays listed (as "Ready" after 30 minutes). It disappears on its own after 8 h, or right away with "Clear old sessions".
+- A single command that runs for more than 30 minutes without Claude writing anything shows as "Ready" until it finishes.
 - Doesn't work with `CLAUDE_CONFIG_DIR` pointing to a folder other than `~/.claude`.

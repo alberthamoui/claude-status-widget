@@ -36,7 +36,7 @@ STARTUP_VBS = os.path.join(
 )
 
 # Events without a matcher | tool events (matcher "*")
-PLAIN_EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "SubagentStop", "PreCompact", "SessionEnd"]
+PLAIN_EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "PreCompact", "SessionEnd"]
 TOOL_EVENTS = ["PreToolUse", "PermissionRequest", "PostToolUse", "Notification"]
 
 
