@@ -402,6 +402,13 @@ class View:
             self.win.geometry(f"{w}x{h}+{x}+{y}")
             self.canvas.config(width=w, height=h)
             self.last_geometry = (w, h, x, y)
+            return
+        # Windows moves windows by itself when monitors are rearranged or (dis)connected.
+        # Tk ignores a geometry it already set, so put the window back directly.
+        actual = (self.win.winfo_width(), self.win.winfo_height(), self.win.winfo_x(), self.win.winfo_y())
+        if actual != (w, h, x, y) and user32 and self.win.winfo_ismapped():
+            SWP_NOZORDER, SWP_NOACTIVATE = 0x4, 0x10
+            user32.SetWindowPos(int(self.win.wm_frame(), 16), None, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE)
 
     def destroy(self):
         self.win.destroy()
