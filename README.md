@@ -72,7 +72,9 @@ python "%USERPROFILE%\claude-widget\install.py" --startup
 Clicks only work on the dot itself.
 
 - **Right-click:** opens the menu.
-  - List of open sessions, with the state, project and what each one is doing. Each one opens a submenu with **Remove from list**, which hides that conversation from the widget (it doesn't close it in Claude, and it comes back if that session does something again).
+  - List of open sessions, with the state, project and what each one is doing.
+    - **Left-click a session** to open it in the Claude desktop app. Sessions it can't open (terminal, VS Code) are grayed out.
+    - **Right-click a session** to remove it from the list. It doesn't close it in Claude, and it comes back if that session does something again.
   - **Pin to taskbar:** one dot on every taskbar (every monitor), just left of the Start button, so it stays clear of the weather widget however wide it gets. When unchecked, the widget becomes a single free window you can put anywhere on the screen.
   - **Sound when waiting for you:** plays an alert when Claude starts waiting for you.
   - **Compact / normal mode:** switches between just the dot and the version with text.
@@ -125,6 +127,7 @@ See [SECURITY.md](SECURITY.md): what the widget reads and writes, what it never 
 ## Limitations
 
 - Windows only, for now (no macOS or Linux support yet). Covers **Claude Code** (the Code tab of the desktop app, the terminal and VS Code). Doesn't cover claude.ai chat, the mobile app or cloud sessions.
+- Opening a session from the menu only works for conversations in the Claude desktop app, not for the terminal or VS Code. It uses the app's `claude://code/continue` link, which isn't a documented API and could change in an app update; if that happens, the click just stops switching conversations.
 - After you approve a permission, the dot only turns orange again once the approved command finishes.
 - If Claude Code closes abruptly, the session stays listed (as "Ready" after 30 minutes). It disappears on its own after 8 h, or right away with "Clear old sessions".
 - A single command that runs for more than 30 minutes without Claude writing anything shows as "Ready" until it finishes.

@@ -18,10 +18,13 @@ Controls:
     drag with the left button  -> move (on the taskbar, horizontally only)
     double-click               -> compact mode (just the dot)
     right-click                -> menu (sessions, mode, sound, quit)
+    in the menu, on a session  -> left-click opens it in Claude, right-click removes it from the list
 """
+import glob
 import json
 import math
 import os
+import re
 import socket
 import sys
 import time
@@ -58,6 +61,10 @@ STATES = {
 
 INTERRUPT_MARKER = "[Request interrupted by user"
 
+# A conversation's id in the Claude desktop app, and the link that opens it there.
+DESKTOP_ID = re.compile(r"local_[A-Za-z0-9-]{1,64}")
+DESKTOP_LINK = "claude://code/continue?session={}"
+
 # Taskbar window class -> its child holding the app icons, which starts at the Start button.
 TASKBARS = {"Shell_TrayWnd": "ReBarWindow32", "Shell_SecondaryTrayWnd": "WorkerW"}
 
@@ -74,6 +81,8 @@ if sys.platform == "win32":
     user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
     user32.MonitorFromWindow.restype = wintypes.HMONITOR
     user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
+    user32.MonitorFromPoint.restype = wintypes.HMONITOR
+    user32.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
     user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND] + [ctypes.c_int] * 4 + [wintypes.UINT]
     user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
     user32.IsWindowVisible.argtypes = [wintypes.HWND]
@@ -113,11 +122,19 @@ def class_name(hwnd):
     return buf.value
 
 
-def monitor_rect(hwnd):
+def monitor_info_rect(monitor):
     info = MONITORINFO(cbSize=ctypes.sizeof(MONITORINFO))
-    user32.GetMonitorInfoW(user32.MonitorFromWindow(hwnd, 2), ctypes.byref(info))
+    user32.GetMonitorInfoW(monitor, ctypes.byref(info))
     m = info.rcMonitor
     return m.left, m.top, m.right, m.bottom
+
+
+def monitor_rect(hwnd):
+    return monitor_info_rect(user32.MonitorFromWindow(hwnd, 2))
+
+
+def monitor_at(x, y):
+    return monitor_info_rect(user32.MonitorFromPoint(wintypes.POINT(x, y), 2))
 
 
 def taskbar_windows():
@@ -339,6 +356,33 @@ def read_sessions(interrupt_cache):
     return sessions
 
 
+def desktop_session_ids():
+    """Maps Claude Code session ids to the desktop app's conversation ids.
+
+    The app keeps one JSON per conversation. Only ids are read from them, and only
+    conversations open in the app are found: terminal and VS Code sessions aren't there.
+    """
+    local, roaming = os.environ.get("LOCALAPPDATA", ""), os.environ.get("APPDATA", "")
+    folders = (glob.glob(os.path.join(local, "Claude-Data", "*", "claude-code-sessions"))
+               + glob.glob(os.path.join(local, "Packages", "Claude_*", "LocalCache", "Roaming", "Claude",
+                                        "claude-code-sessions"))
+               + [os.path.join(roaming, "Claude", "claude-code-sessions")])
+    ids = {}
+    for folder in folders:
+        for path in glob.glob(os.path.join(folder, "**", "local_*.json"), recursive=True):
+            data = load_json(path, None)
+            if not isinstance(data, dict) or data.get("isArchived"):
+                continue
+            desktop_id = data.get("sessionId")
+            if not isinstance(desktop_id, str) or not DESKTOP_ID.fullmatch(desktop_id):
+                continue
+            prior = data.get("priorCliSessionIds")
+            for cli_id in [data.get("cliSessionId")] + (prior if isinstance(prior, list) else []):
+                if isinstance(cli_id, str):
+                    ids[cli_id] = desktop_id
+    return ids
+
+
 def project_name(session):
     cwd = session.get("cwd") or ""
     return os.path.basename(cwd.rstrip("\\/")) or cwd or "session"
@@ -428,6 +472,7 @@ class StatusWidget:
         self.interrupt_cache = {}
         self.t0 = time.time()
         self.menu_open = False
+        self.panel = None
         self.views = {}  # taskbar hwnd (or "floating") -> View
         self.covered = set()  # taskbars a fullscreen window is hiding
 
@@ -448,6 +493,7 @@ class StatusWidget:
 
         self.title_font = tkfont.Font(family="Segoe UI Semibold", size=10)
         self.sub_font = tkfont.Font(family="Segoe UI", size=8)
+        self.menu_font = tkfont.Font(family="Segoe UI", size=9)
 
         self.layout()
         if mode:
@@ -594,40 +640,126 @@ class StatusWidget:
     # ---- context menu
 
     def show_menu(self, event):
-        menu = tk.Menu(self.root, tearoff=0)
+        self.open_panel(event.x_root, event.y_root)
+
+    def open_panel(self, x, y):
+        """Our own menu: a native Windows menu can't tell a left-click from a right-click on an item."""
+        self.close_panel()
+        self.menu_open = True
+        theme = self.theme
+        self.panel = panel = tk.Toplevel(self.root)
+        panel.overrideredirect(True)
+        panel.wm_attributes("-topmost", True)
+        line = blend(theme["bg"], theme["text"], 0.25)
+        panel.configure(bg=line)
+        body = tk.Frame(panel, bg=theme["bg"], pady=int(4 * self.s))
+        body.pack(padx=1, pady=1)
+
+        def separator():
+            tk.Frame(body, height=1, bg=line).pack(fill="x", pady=int(4 * self.s))
+
+        def option(text, action, var=None):
+            def run():
+                self.close_panel()
+                if var is not None:
+                    var.set(not var.get())
+                action()
+            self.panel_row(body, text, mark="✓" if var is not None and var.get() else "", left=run)
+
         if self.sessions:
+            desktop_ids = desktop_session_ids()
             for s in self.sessions:
                 label = f"{STATES[s['state']]['label']}  ·  {project_name(s)}"
                 if s.get("detail"):
                     label += f"  ·  {s['detail']}"
-                if s.get("file"):
-                    # Each conversation opens a submenu, so it can be removed on its own.
-                    submenu = tk.Menu(menu, tearoff=0)
-                    submenu.add_command(label="Remove from list",
-                                        command=lambda name=s["file"]: self.remove_session(name))
-                    menu.add_cascade(label=label[:70], menu=submenu)
-                else:
-                    menu.add_command(label=label[:70], state="disabled")
+                name = s.get("file")
+                # The file is named after the session id; sessions outside the app have no link.
+                desktop_id = desktop_ids.get(name[:-len(".json")]) if name else None
+                self.panel_row(body, label[:70], mark="●", mark_color=STATES[s["state"]]["color"],
+                               left=(lambda i=desktop_id: self.open_session(i)) if desktop_id else None,
+                               right=(lambda n=name: self.remove_from_panel(n, x, y)) if name else None)
+            self.panel_row(body, "Left-click: open in Claude  ·  Right-click: remove", font=self.sub_font)
         else:
-            menu.add_command(label="No active Claude Code session", state="disabled")
-        menu.add_separator()
+            self.panel_row(body, "No active Claude Code session")
+        separator()
         if user32:
-            menu.add_checkbutton(label="Pin to taskbar", variable=self.on_taskbar,
-                                 command=self.toggle_taskbar)
+            option("Pin to taskbar", self.toggle_taskbar, self.on_taskbar)
         if not self.on_taskbar.get():
-            menu.add_checkbutton(label="Always on top", variable=self.topmost, command=self.on_topmost)
-        menu.add_checkbutton(label="Sound when waiting for you", variable=self.beep, command=self.save_config)
-        menu.add_command(label="Compact / normal mode", command=self.toggle_compact)
-        menu.add_command(label="Clear old sessions", command=self.clear_idle_sessions)
-        menu.add_separator()
-        menu.add_command(label="Quit", command=self.quit)
-        # On Windows, tk_popup only returns once the menu closes.
-        self.menu_open = True
+            option("Always on top", self.on_topmost, self.topmost)
+        option("Sound when waiting for you", self.save_config, self.beep)
+        option("Compact / normal mode", self.toggle_compact)
+        option("Clear old sessions", self.clear_idle_sessions)
+        separator()
+        option("Quit", self.quit)
+
+        panel.update_idletasks()
+        w, h = panel.winfo_reqwidth(), panel.winfo_reqheight()
+        left, top, right, _ = monitor_at(x, y) if user32 else (0, 0, panel.winfo_screenwidth(), 0)
+        px = max(left, min(x, right - w))
+        py = y - h if y - h >= top else y
+        panel.geometry(f"{w}x{h}+{px}+{py}")
+        panel.bind("<Escape>", lambda e: self.close_panel())
+        panel.bind("<FocusOut>", lambda e: self.root.after(100, self.close_panel_if_unfocused))
+        panel.focus_force()
+
+    def panel_row(self, parent, text, mark="", mark_color=None, left=None, right=None, font=None):
+        """One line of the panel: `left` and `right` run on a left or right click."""
+        bg, s = self.theme["bg"], self.s
+        color = self.theme["text"] if left else self.theme["sub"]
+        font = font or self.menu_font
+        row = tk.Frame(parent, bg=bg)
+        row.pack(fill="x")
+        parts = (row,
+                 tk.Label(row, text=mark, width=2, bg=bg, fg=mark_color or color, font=font),
+                 tk.Label(row, text=text, anchor="w", bg=bg, fg=color, font=font, padx=int(2 * s), pady=int(2 * s)))
+        parts[1].pack(side="left", padx=(int(4 * s), 0))
+        parts[2].pack(side="left", fill="x", expand=True, padx=(0, int(10 * s)))
+        if not (left or right):
+            return
+        hover = blend(bg, self.theme["text"], 0.14)
+
+        def paint(fill):
+            for part in parts:
+                part.configure(bg=fill)
+
+        def on_left(event):
+            if left:
+                self.close_panel()
+                left()
+
+        def on_right(event):
+            if right:
+                right()
+
+        for part in parts:
+            part.bind("<Enter>", lambda e: paint(hover))
+            part.bind("<Leave>", lambda e: paint(bg))
+            part.bind("<Button-1>", on_left)
+            part.bind("<Button-3>", on_right)
+
+    def close_panel(self):
+        if self.panel:
+            self.panel.destroy()
+            self.panel = None
+        self.menu_open = False
+
+    def close_panel_if_unfocused(self):
+        # Clicking elsewhere takes the focus away, which is how the panel knows to close.
+        if self.panel:
+            focused = self.panel.focus_displayof()
+            if focused is None or focused.winfo_toplevel() != self.panel:
+                self.close_panel()
+
+    def open_session(self, desktop_id):
+        """Switches the Claude desktop app to this conversation."""
         try:
-            menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            menu.grab_release()
-            self.menu_open = False
+            os.startfile(DESKTOP_LINK.format(desktop_id))
+        except OSError:
+            pass
+
+    def remove_from_panel(self, name, x, y):
+        self.remove_session(name)
+        self.open_panel(x, y)  # stays open, without that conversation
 
     def on_topmost(self):
         floating = self.views.get("floating")
