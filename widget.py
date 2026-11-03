@@ -71,14 +71,26 @@ if sys.platform == "win32":
     user32 = ctypes.windll.user32
     user32.FindWindowExW.restype = wintypes.HWND
     user32.FindWindowExW.argtypes = [wintypes.HWND, wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR]
-    user32.GetForegroundWindow.restype = wintypes.HWND
     user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
     user32.MonitorFromWindow.restype = wintypes.HMONITOR
     user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
     user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND] + [ctypes.c_int] * 4 + [wintypes.UINT]
     user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
     user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.IsIconic.argtypes = [wintypes.HWND]
+    user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
     EnumWindowsProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    try:
+        user32.SetThreadDpiAwarenessContext.restype = ctypes.c_void_p
+        user32.SetThreadDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+    except AttributeError:  # Windows older than 10 1607
+        pass
+    try:
+        dwmapi = ctypes.windll.dwmapi
+        dwmapi.DwmGetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
+    except OSError:
+        dwmapi = None
 
     class MONITORINFO(ctypes.Structure):
         _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
@@ -132,16 +144,77 @@ def apps_area(taskbar, cls):
     return rect if rect[2] > rect[0] else None
 
 
-def fullscreen_over(taskbar):
-    """True if the foreground window covers the whole monitor of this taskbar (video, game...)."""
-    hwnd = user32.GetForegroundWindow()
-    if not hwnd or class_name(hwnd) in ("Progman", "WorkerW", *TASKBARS):
+# Shell windows that can cover a whole monitor without hiding the taskbar.
+SHELL_OVERLAYS = {"Progman", "WorkerW", "XamlExplorerHostIslandWindow", "MultitaskingViewFrame",
+                  "ForegroundStaging", "Windows.UI.Core.CoreWindow", *TASKBARS}
+
+
+class physical_pixels:
+    """Measures in real pixels while active, so monitors with different scaling compare exactly."""
+
+    def __enter__(self):
+        try:
+            self.old = user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))  # per-monitor v2
+        except AttributeError:  # Windows older than 10 1607
+            self.old = None
+        return self
+
+    def __exit__(self, *exc):
+        if self.old:
+            user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(self.old))
+
+
+def can_cover_taskbar(hwnd):
+    """A real, visible app window: not ours, not minimized, cloaked, click-through or a shell overlay."""
+    if not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
         return False
-    if user32.MonitorFromWindow(hwnd, 2) != user32.MonitorFromWindow(taskbar, 2):
+    ex_style = user32.GetWindowLongW(hwnd, -20)  # GWL_EXSTYLE
+    if ex_style & 0x20 or ex_style & 0x80:  # WS_EX_TRANSPARENT (overlays), WS_EX_TOOLWINDOW
         return False
-    m = monitor_rect(taskbar)
-    left, top, right, bottom = window_rect(hwnd)
-    return left <= m[0] and top <= m[1] and right >= m[2] and bottom >= m[3]
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    if pid.value == os.getpid():
+        return False
+    if dwmapi:
+        cloaked = ctypes.c_int(0)
+        dwmapi.DwmGetWindowAttribute(hwnd, 14, ctypes.byref(cloaked), ctypes.sizeof(cloaked))  # DWMWA_CLOAKED
+        if cloaked.value:
+            return False
+    return class_name(hwnd) not in SHELL_OVERLAYS
+
+
+def fullscreen_taskbars(taskbars):
+    """Taskbars that a fullscreen window (video, game...) is hiding, the way Windows hides them.
+
+    Walks the windows from the top of the z-order down to each taskbar: a window above
+    the taskbar that covers its whole monitor means the taskbar is out of sight.
+    """
+    pending = set(taskbars)
+    covered = set()
+    if not pending:
+        return covered
+    tolerance = 2  # pixels; borderless fullscreen windows are sometimes off by one
+
+    with physical_pixels():
+        monitors = {tb: monitor_rect(tb) for tb in pending}
+
+        def visit(hwnd, _):
+            if hwnd in pending:  # reached this taskbar: windows below it can't hide it
+                pending.discard(hwnd)
+                return bool(pending)
+            if not can_cover_taskbar(hwnd):
+                return True
+            left, top, right, bottom = window_rect(hwnd)
+            for tb in list(pending):
+                m = monitors[tb]
+                if (left <= m[0] + tolerance and top <= m[1] + tolerance
+                        and right >= m[2] - tolerance and bottom >= m[3] - tolerance):
+                    covered.add(tb)
+                    pending.discard(tb)
+            return bool(pending)
+
+        user32.EnumWindows(EnumWindowsProc(visit), 0)
+    return covered
 
 
 def light_taskbar():
@@ -349,6 +422,7 @@ class StatusWidget:
         self.t0 = time.time()
         self.menu_open = False
         self.views = {}  # taskbar hwnd (or "floating") -> View
+        self.covered = set()  # taskbars a fullscreen window is hiding
 
         # The root window stays hidden; each visible window is a View.
         self.root = tk.Tk()
@@ -418,7 +492,7 @@ class StatusWidget:
         left, top, right, bottom = window_rect(view.taskbar)
         bottom = min(bottom, monitor_rect(view.taskbar)[3])
         # an auto-hidden taskbar sits almost entirely off screen
-        visible = bottom - top > 20 and not fullscreen_over(view.taskbar)
+        visible = bottom - top > 20 and view.taskbar not in self.covered
         view.show(visible)
         if not visible:
             return
@@ -449,6 +523,7 @@ class StatusWidget:
     def taskbar_tick(self):
         if self.on_taskbar.get() and not self.menu_open:
             self.layout()
+            self.covered = fullscreen_taskbars([v.taskbar for v in self.views.values() if v.taskbar])
             for view in self.views.values():
                 self.place_on_taskbar(view)
         self.root.after(TASKBAR_MS, self.taskbar_tick)

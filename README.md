@@ -78,7 +78,7 @@ Clicks only work on the dot itself.
 - **Double-click:** same as "Compact / normal mode".
 - **Drag:** moves the dot along the taskbar. The distance from the Start button is saved and used on every monitor.
 
-With several sessions open, the dot shows the most urgent one: waiting for you > thinking > ready. It also hides while a video or game is fullscreen.
+With several sessions open, the dot shows the most urgent one: waiting for you > thinking > ready. Like the rest of the taskbar, the dot on a monitor hides while a video or game is fullscreen there, even when another window has focus.
 
 ## Uninstall
 
