@@ -19,11 +19,15 @@ Teste manual sem o Claude:
 """
 import json
 import os
+import re
 import sys
 import time
 
 BASE_DIR = os.path.join(os.path.expanduser("~"), ".claude", "claude-status-widget")
 SESSIONS_DIR = os.path.join(BASE_DIR, "sessions")
+
+# O session_id vira nome de arquivo: só aceitamos caracteres seguros, nada de "../".
+SAFE_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
 # Ferramentas que, por natureza, param tudo esperando o usuário.
 INTERACTIVE_TOOLS = {"AskUserQuestion", "ExitPlanMode"}
@@ -116,7 +120,7 @@ def main():
     except ValueError:
         return
     session_id = event.get("session_id")
-    if not session_id:
+    if not isinstance(session_id, str) or not SAFE_ID.fullmatch(session_id):
         return
 
     state, detail = state_for(event)

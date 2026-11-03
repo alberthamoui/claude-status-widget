@@ -28,9 +28,11 @@ import time
 import tkinter as tk
 import tkinter.font as tkfont
 
-BASE_DIR = os.path.join(os.path.expanduser("~"), ".claude", "claude-status-widget")
+CLAUDE_DIR = os.path.realpath(os.path.join(os.path.expanduser("~"), ".claude"))
+BASE_DIR = os.path.join(CLAUDE_DIR, "claude-status-widget")
 SESSIONS_DIR = os.path.join(BASE_DIR, "sessions")
 CONFIG_PATH = os.path.join(BASE_DIR, "widget_config.json")
+QUIT_FLAG = os.path.join(BASE_DIR, "quit.flag")  # o instalador cria para fechar o widget ao atualizar
 
 POLL_MS = 400              # leitura dos arquivos de sessão
 FRAME_MS = 33              # animação (~30 fps)
@@ -129,16 +131,25 @@ def load_json(path, default):
         return default
 
 
+def inside_claude_dir(path):
+    """Só lemos transcripts do próprio Claude Code, nunca um caminho qualquer vindo do JSON."""
+    try:
+        real = os.path.realpath(path)
+        return real.endswith(".jsonl") and os.path.commonpath([real, CLAUDE_DIR]) == CLAUDE_DIR
+    except ValueError:  # drives diferentes, caminho inválido
+        return False
+
+
 def was_interrupted(session, cache):
     """Esc no Claude Code não dispara o hook Stop; detectamos pelo fim do transcript."""
-    path = session.get("transcript_path")
-    if not path:
+    path = session["transcript_path"]
+    if not path or not inside_claude_dir(path):
         return None
     try:
         mtime = os.path.getmtime(path)
     except OSError:
         return None
-    if mtime <= session.get("updated", 0):
+    if mtime <= session["updated"]:
         return None
     cached = cache.get(path)
     if cached and cached[0] == mtime:
@@ -157,6 +168,33 @@ def was_interrupted(session, cache):
     return result
 
 
+def clean_session(raw, filename):
+    """Aceita só os campos e tipos esperados; um JSON estranho é ignorado em vez de derrubar o widget."""
+    if not isinstance(raw, dict) or raw.get("state") not in STATES or raw["state"] == "offline":
+        return None
+
+    def number(value):
+        ok = isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+        return float(value) if ok else None
+
+    def text(value):
+        return value if isinstance(value, str) else ""
+
+    updated = number(raw.get("updated"))
+    if updated is None:
+        return None
+    since = number(raw.get("since"))
+    return {
+        "file": filename,
+        "state": raw["state"],
+        "detail": text(raw.get("detail"))[:120],
+        "cwd": text(raw.get("cwd")),
+        "transcript_path": text(raw.get("transcript_path")),
+        "updated": updated,
+        "since": since if since is not None else updated,
+    }
+
+
 def read_sessions(interrupt_cache):
     sessions = []
     now = time.time()
@@ -167,17 +205,15 @@ def read_sessions(interrupt_cache):
     for name in names:
         if not name.endswith(".json"):
             continue
-        s = load_json(os.path.join(SESSIONS_DIR, name), None)
-        if not isinstance(s, dict) or s.get("state") not in STATES:
-            continue
-        if now - s.get("updated", 0) > STALE_SECONDS:
+        s = clean_session(load_json(os.path.join(SESSIONS_DIR, name), None), name)
+        if s is None or now - s["updated"] > STALE_SECONDS:
             continue
         if s["state"] != "idle":
             interrupted_at = was_interrupted(s, interrupt_cache)
             if interrupted_at:
                 s.update(state="idle", detail="interrompido", since=interrupted_at)
         sessions.append(s)
-    sessions.sort(key=lambda s: (-STATES[s["state"]]["priority"], -s.get("updated", 0)))
+    sessions.sort(key=lambda s: (-STATES[s["state"]]["priority"], -s["updated"]))
     return sessions
 
 
@@ -206,6 +242,8 @@ class StatusWidget:
     def __init__(self, demo=False, mode=None):
         self.demo = demo
         self.config = load_json(CONFIG_PATH, {})
+        if not isinstance(self.config, dict):
+            self.config = {}
         if mode:
             self.config["mode"] = mode
         self.sessions = []
@@ -230,10 +268,11 @@ class StatusWidget:
         self.s = max(1.0, float(self.root.tk.call("tk", "scaling")) / (96 / 72))
         self.taskbar_height = int(48 * self.s)
 
-        self.on_taskbar = tk.BooleanVar(value=self.config.get("mode") == "taskbar" and user32 is not None)
+        # Padrão para quem acabou de instalar: só a bolinha, na barra de tarefas.
+        self.on_taskbar = tk.BooleanVar(value=self.config.get("mode", "taskbar") == "taskbar" and user32 is not None)
         self.topmost = tk.BooleanVar(value=self.config.get("topmost", True))
         self.beep = tk.BooleanVar(value=self.config.get("beep", False))
-        self.compact = self.config.get("compact", False)
+        self.compact = self.config.get("compact", True)
         self.update_theme()
 
         self.canvas = tk.Canvas(self.root, bg=TRANSPARENT, highlightthickness=0, bd=0)
@@ -280,8 +319,8 @@ class StatusWidget:
             self.hidden = False
         w, h = self.size()
         sw = self.root.winfo_screenwidth()
-        x = self.config.get("x", sw - w - int(24 * self.s))
-        y = self.config.get("y", int(24 * self.s))
+        x = self.config_int("x", sw - w - int(24 * self.s))
+        y = self.config_int("y", int(24 * self.s))
         x = min(max(0, x), sw - w)
         y = min(max(0, y), self.root.winfo_screenheight() - h)
         self.root.geometry(f"{w}x{h}+{x}+{y}")
@@ -309,7 +348,7 @@ class StatusWidget:
 
         self.taskbar_height = bottom - top
         w, h = self.size()
-        offset = self.config.get("taskbar_offset", int(64 * self.s))
+        offset = self.config_int("taskbar_offset", int(64 * self.s))
         x = min(max(left, left + offset), right - w)
         y = top + (self.taskbar_height - h) // 2
         geometry = (w, h, x, y)
@@ -330,6 +369,10 @@ class StatusWidget:
         if self.on_taskbar.get():
             self.place_on_taskbar()
         self.root.after(TASKBAR_MS, self.taskbar_tick)
+
+    def config_int(self, key, default):
+        value = self.config.get(key)
+        return value if isinstance(value, int) and not isinstance(value, bool) else default
 
     def save_config(self):
         self.config.update(
@@ -404,20 +447,34 @@ class StatusWidget:
         self.save_config()
 
     def clear_idle_sessions(self):
+        # Apaga pelo nome que o próprio os.listdir devolveu, nunca por um id lido de dentro do JSON.
         for s in self.sessions:
-            if s["state"] == "idle":
+            if s["state"] == "idle" and s.get("file"):
                 try:
-                    os.remove(os.path.join(SESSIONS_DIR, f"{s['session_id']}.json"))
-                except (OSError, KeyError):
+                    os.remove(os.path.join(SESSIONS_DIR, s["file"]))
+                except OSError:
                     pass
 
     def quit(self):
         self.save_config()
         self.root.destroy()
 
+    def quit_requested(self):
+        """O instalador pede para fechar (ao atualizar ou desinstalar) criando o quit.flag."""
+        try:
+            requested = os.path.getmtime(QUIT_FLAG) >= self.t0 - 1
+            os.remove(QUIT_FLAG)
+        except OSError:
+            return False
+        if requested:
+            self.quit()
+        return requested
+
     # ---- estado
 
     def poll(self):
+        if self.quit_requested():
+            return
         if self.demo:
             order = ["thinking", "waiting", "idle"]
             state = order[int((time.time() - self.t0) // 4) % 3]
