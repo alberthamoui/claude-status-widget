@@ -79,7 +79,7 @@ Clicks only work on the dot itself.
   - **Sound when waiting for you:** plays an alert when Claude starts waiting for you.
   - **Compact / normal mode:** switches between just the dot and the version with text.
   - **Clear old sessions:** removes finished sessions from the list.
-  - **Quit:** closes the widget. To reopen it: `pythonw "%USERPROFILE%\.claude\claude-status-widget\widget.py"`.
+  - **Quit:** asks for confirmation, then closes the widget. To reopen it: `pythonw "%USERPROFILE%\.claude\claude-status-widget\widget.py"`.
 - **Double-click:** same as "Compact / normal mode".
 - **Drag:** moves the dot along the taskbar. The distance from the Start button is saved and used on every monitor.
 
