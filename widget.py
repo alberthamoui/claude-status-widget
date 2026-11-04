@@ -644,19 +644,7 @@ class StatusWidget:
 
     def open_panel(self, x, y):
         """Our own menu: a native Windows menu can't tell a left-click from a right-click on an item."""
-        self.close_panel()
-        self.menu_open = True
-        theme = self.theme
-        self.panel = panel = tk.Toplevel(self.root)
-        panel.overrideredirect(True)
-        panel.wm_attributes("-topmost", True)
-        line = blend(theme["bg"], theme["text"], 0.25)
-        panel.configure(bg=line)
-        body = tk.Frame(panel, bg=theme["bg"], pady=int(4 * self.s))
-        body.pack(padx=1, pady=1)
-
-        def separator():
-            tk.Frame(body, height=1, bg=line).pack(fill="x", pady=int(4 * self.s))
+        body = self.new_panel()
 
         def option(text, action, var=None):
             def run():
@@ -681,7 +669,7 @@ class StatusWidget:
             self.panel_row(body, "Left-click: open in Claude  ·  Right-click: remove", font=self.sub_font)
         else:
             self.panel_row(body, "No active Claude Code session")
-        separator()
+        self.panel_separator(body)
         if user32:
             option("Pin to taskbar", self.toggle_taskbar, self.on_taskbar)
         if not self.on_taskbar.get():
@@ -689,23 +677,57 @@ class StatusWidget:
         option("Sound when waiting for you", self.save_config, self.beep)
         option("Compact / normal mode", self.toggle_compact)
         option("Clear old sessions", self.clear_idle_sessions)
-        separator()
-        option("Quit", self.quit)
+        self.panel_separator(body)
+        option("Quit", lambda: self.confirm_quit(x, y))
+        self.show_panel(x, y)
 
+    def confirm_quit(self, x, y):
+        """Asks before closing. The installer's quit.flag skips this, so updates never wait on it."""
+        body = self.new_panel()
+        self.panel_row(body, "Quit Claude Status Widget?", strong=True)
+        self.panel_row(body, "The dot will be gone until you open the widget again.", font=self.sub_font)
+        self.panel_separator(body)
+        self.panel_row(body, "Quit", left=self.quit)
+        self.panel_row(body, "Cancel", left=self.close_panel)
+        self.show_panel(x, y)
+
+    def new_panel(self):
+        """Replaces any open panel with a new empty one and returns the frame to fill."""
+        self.close_panel()
+        self.menu_open = True
+        self.panel = panel = tk.Toplevel(self.root)
+        panel.withdraw()  # stays hidden until it's filled and placed
+        panel.overrideredirect(True)
+        panel.wm_attributes("-topmost", True)
+        panel.configure(bg=self.panel_line())
+        body = tk.Frame(panel, bg=self.theme["bg"], pady=int(4 * self.s))
+        body.pack(padx=1, pady=1)
+        return body
+
+    def panel_line(self):
+        return blend(self.theme["bg"], self.theme["text"], 0.25)
+
+    def panel_separator(self, body):
+        tk.Frame(body, height=1, bg=self.panel_line()).pack(fill="x", pady=int(4 * self.s))
+
+    def show_panel(self, x, y):
+        """Places the filled panel above the click, inside the monitor, and gives it the focus."""
+        panel = self.panel
         panel.update_idletasks()
         w, h = panel.winfo_reqwidth(), panel.winfo_reqheight()
         left, top, right, _ = monitor_at(x, y) if user32 else (0, 0, panel.winfo_screenwidth(), 0)
         px = max(left, min(x, right - w))
         py = y - h if y - h >= top else y
         panel.geometry(f"{w}x{h}+{px}+{py}")
+        panel.deiconify()
         panel.bind("<Escape>", lambda e: self.close_panel())
         panel.bind("<FocusOut>", lambda e: self.root.after(100, self.close_panel_if_unfocused))
         panel.focus_force()
 
-    def panel_row(self, parent, text, mark="", mark_color=None, left=None, right=None, font=None):
+    def panel_row(self, parent, text, mark="", mark_color=None, left=None, right=None, font=None, strong=False):
         """One line of the panel: `left` and `right` run on a left or right click."""
         bg, s = self.theme["bg"], self.s
-        color = self.theme["text"] if left else self.theme["sub"]
+        color = self.theme["text"] if left or strong else self.theme["sub"]
         font = font or self.menu_font
         row = tk.Frame(parent, bg=bg)
         row.pack(fill="x")
