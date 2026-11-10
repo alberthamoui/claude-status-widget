@@ -27,18 +27,25 @@ Claude will download the project, show you what will change on your PC and ask f
 > This section is for the assistant doing the install. Follow the steps in order and check with the user before the steps marked **(confirm)**.
 
 1. **Check the system.** The widget currently only works on Windows 10 and 11. On macOS, Linux or anything else, tell the user it isn't supported yet and stop: don't clone, install Python or change any settings.
+All commands below work as written in both Git Bash (the shell Claude Code uses on Windows) and PowerShell. Don't use `%USERPROFILE%`: it only works in the old Command Prompt.
+
 2. **Check Python:** `python -c "import sys, tkinter; print(sys.version)"`. It must be 3.8+ and have Tkinter.
-   - If Python is missing **(confirm)**: `winget install -e --id Python.Python.3.12`, then open a new terminal.
-   - Use the same command that worked here (`python` or `py`) in the next steps.
-3. **Download the repository** **(confirm the folder)**, for example into `%USERPROFILE%\claude-widget`:
+   - If `python` isn't found, prints nothing, or opens the Microsoft Store (Windows' placeholder), try `py -3 -c "import sys, tkinter; print(sys.version)"`.
+   - If neither works, install Python **(confirm)**:
+     ```bash
+     winget install -e --id Python.Python.3.12 --scope user --accept-source-agreements --accept-package-agreements
+     ```
+     The current shell won't see it on the PATH yet, so in the next steps call it by its full path: `"$LOCALAPPDATA/Programs/Python/Python312/python.exe"`.
+   - Use the command that worked (`python`, `py -3` or the full path) wherever the steps below say `python`.
+3. **Download the repository** **(confirm the folder)**, for example into `$HOME/claude-widget`:
    ```bash
-   git clone https://github.com/alberthamoui/claude-widget.git "%USERPROFILE%\claude-widget"
+   git clone https://github.com/alberthamoui/claude-widget.git "$HOME/claude-widget"
    ```
-   If it already exists, update it with `git -C "%USERPROFILE%\claude-widget" pull`.
+   If it already exists, update it instead: `git -C "$HOME/claude-widget" pull`.
 4. **Read `install.py` before running it.** It's short and states at the top everything it changes.
 5. **Install** **(confirm)**. Show the user what will change: `~/.claude/settings.json` gets hooks added, with a backup first. Also ask whether they want the widget to open when Windows starts.
    ```bash
-   python "%USERPROFILE%\claude-widget\install.py" --startup
+   python "$HOME/claude-widget/install.py" --startup
    ```
    Without opening on Windows startup: the same command without `--startup`.
 6. **Check** that the installer ended with `Done.` and that the dot appeared on the taskbar, just left of the Start button.
@@ -60,11 +67,11 @@ The installer copies the files to `~/.claude/claude-status-widget/`. After that,
 
 ## Update
 
-Download the new version and run the installer again. It closes the old widget, replaces the files and opens the new one, without duplicating the hooks:
+Download the new version and run the installer again (in PowerShell or Git Bash). It closes the old widget, replaces the files and opens the new one, without duplicating the hooks:
 
 ```bash
-git -C "%USERPROFILE%\claude-widget" pull
-python "%USERPROFILE%\claude-widget\install.py" --startup
+git -C "$HOME/claude-widget" pull
+python "$HOME/claude-widget/install.py" --startup
 ```
 
 ## Usage
@@ -79,7 +86,7 @@ Clicks only work on the dot itself.
   - **Sound when waiting for you:** plays an alert when Claude starts waiting for you.
   - **Compact / normal mode:** switches between just the dot and the version with text.
   - **Clear old sessions:** removes finished sessions from the list.
-  - **Quit:** asks for confirmation, then closes the widget. To reopen it: `pythonw "%USERPROFILE%\.claude\claude-status-widget\widget.py"`.
+  - **Quit:** asks for confirmation, then closes the widget. To reopen it: `pythonw "$HOME/.claude/claude-status-widget/widget.py"`.
 - **Double-click:** same as "Compact / normal mode".
 - **Drag:** moves the dot along the taskbar. The distance from the Start button is saved and used on every monitor.
 
@@ -87,8 +94,10 @@ With several sessions open, the dot shows the most urgent one: waiting for you >
 
 ## Uninstall
 
+In PowerShell or Git Bash:
+
 ```bash
-python "%USERPROFILE%\.claude\claude-status-widget\install.py" --uninstall
+python "$HOME/.claude/claude-status-widget/install.py" --uninstall
 ```
 
 Removes the hooks (keeping yours), the startup entry and the widget folder.

@@ -208,16 +208,30 @@ def install(startup, start):
     print(f"  hooks registered in {SETTINGS}")
 
     if startup:
-        widget = os.path.join(INSTALL_DIR, "widget.py")
-        with open(STARTUP_VBS, "w", encoding="utf-8") as f:
-            f.write(f'CreateObject("WScript.Shell").Run """{pythonw}"" ""{widget}""", 0, False\n')
-        print(f"  opens when Windows starts: {STARTUP_VBS}")
+        add_startup_entry(pythonw)
 
     if start:
         start_widget(pythonw)
 
     print("\nDone. Claude Code sessions that were already open may need a restart.")
-    print(f'To uninstall: "{python}" "{os.path.join(INSTALL_DIR, "install.py")}" --uninstall')
+    # Forward slashes and a plain "python": the same line works in PowerShell and Git Bash.
+    print(f'To uninstall: python "{os.path.join(INSTALL_DIR, "install.py").replace(os.sep, "/")}" --uninstall')
+
+
+def add_startup_entry(pythonw):
+    """Opens the widget when Windows starts. A failure here only skips that, it never undoes the install."""
+    if not os.environ.get("APPDATA"):
+        print("  warning: APPDATA isn't set, so the widget won't open when Windows starts")
+        return
+    widget = os.path.join(INSTALL_DIR, "widget.py")
+    try:
+        os.makedirs(os.path.dirname(STARTUP_VBS), exist_ok=True)
+        # UTF-16: Windows Script Host misreads UTF-8, which breaks user names with accents (João).
+        with open(STARTUP_VBS, "w", encoding="utf-16") as f:
+            f.write(f'CreateObject("WScript.Shell").Run """{pythonw}"" ""{widget}""", 0, False\n')
+        print(f"  opens when Windows starts: {STARTUP_VBS}")
+    except OSError as e:
+        print(f"  warning: couldn't set it to open when Windows starts ({e})")
 
 
 def uninstall():
