@@ -153,12 +153,32 @@ def taskbar_windows():
 
 
 def apps_area(taskbar, cls):
-    """Rect of the taskbar's app icons, which starts at the Start button; None if not found."""
+    """Rect of the taskbar's app icons; None if not found."""
     hwnd = user32.FindWindowExW(taskbar, None, TASKBARS[cls], None)
     if not hwnd or not user32.IsWindowVisible(hwnd):
         return None
     rect = window_rect(hwnd)
     return rect if rect[2] > rect[0] else None
+
+
+def start_button_left(taskbar, cls):
+    """x where the Start button begins on this taskbar; None if neither reference is found.
+
+    Some Windows 11 builds start the app area at the Start button, others right after it.
+    So the "Start" child is used too: on 24H2 it's hidden, but its rect still matches the
+    real button. The leftmost of the two is the button.
+    """
+    bar = window_rect(taskbar)
+    lefts = []
+    start = user32.FindWindowExW(taskbar, None, "Start", None)
+    if start:
+        left, top, right, bottom = window_rect(start)
+        if right > left and bar[0] <= left and right <= bar[2] and top < bar[3] and bottom > bar[1]:
+            lefts.append(left)
+    apps = apps_area(taskbar, cls)
+    if apps:
+        lefts.append(apps[0])
+    return min(lefts) if lefts else None
 
 
 # Shell windows that can cover a whole monitor without hiding the taskbar.
@@ -565,9 +585,9 @@ class StatusWidget:
     def taskbar_x(self, view, left, w):
         """Just left of the Start button, between it and the weather widget, on any monitor."""
         nearest = left
-        apps = apps_area(view.taskbar, view.cls)
-        if apps:
-            nearest = apps[0] - int(8 * self.s) - w
+        start = start_button_left(view.taskbar, view.cls)
+        if start is not None:
+            nearest = start - int(8 * self.s) - w
         if nearest <= left:
             # Start button at the very left (left-aligned taskbar): fall back to a fixed spot.
             return left + max(0, self.config_int("taskbar_offset", 0))
@@ -626,9 +646,9 @@ class StatusWidget:
         x = event.x_root - dx
         if view.taskbar:
             # The distance from the Start button is shared by the dots on every taskbar.
-            apps = apps_area(view.taskbar, view.cls)
+            start = start_button_left(view.taskbar, view.cls)
             left = window_rect(view.taskbar)[0]
-            nearest = apps[0] - int(8 * self.s) - self.size(view)[0] if apps else left
+            nearest = start - int(8 * self.s) - self.size(view)[0] if start is not None else left
             if nearest > left:
                 self.config["start_offset"] = nearest - x
             else:
