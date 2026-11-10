@@ -141,3 +141,13 @@ See [SECURITY.md](SECURITY.md): what the widget reads and writes, what it never 
 - If Claude Code closes abruptly, the session stays listed (as "Ready" after 30 minutes). It disappears on its own after 8 h, or right away with "Clear old sessions".
 - A single command that runs for more than 30 minutes without Claude writing anything shows as "Ready" until it finishes.
 - Doesn't work with `CLAUDE_CONFIG_DIR` pointing to a folder other than `~/.claude`.
+
+## Not tested yet
+
+The install was tested from a fresh clone, following the steps above in Git Bash, with a user name that has an accent and a space. These cases haven't been tested yet. If you run into one, please open an issue.
+
+- **PC without Python:** installing Python with `winget` (step 2 of the instructions) was never run for real.
+- **Python 3.8:** only the syntax was checked; the code has only run on Python 3.11.
+- **Windows 10:** only tested on Windows 11. The Windows 10 taskbar is different, so the dot may sit in a slightly different place.
+- **Opening conversations from the menu:** may not work if the Claude desktop app was installed differently, because its data can live in another folder. In that case conversations just show grayed out.
+- **Another person's Claude reading this README:** never tested end to end. It will ask for confirmation before changing `settings.json`, which is expected.
