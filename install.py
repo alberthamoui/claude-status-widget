@@ -15,7 +15,9 @@ Existing hooks are kept; only this widget's entries are replaced.
 Running it again updates the installation without duplicating anything.
 """
 import json
+import ntpath
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -36,8 +38,8 @@ STARTUP_VBS = os.path.join(
 )
 
 # Events without a matcher | tool events (matcher "*")
-PLAIN_EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "PreCompact", "SessionEnd"]
-TOOL_EVENTS = ["PreToolUse", "PermissionRequest", "PostToolUse", "Notification"]
+PLAIN_EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "PreCompact", "SessionEnd"]
+TOOL_EVENTS = ["PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "Notification"]
 
 
 class InstallError(Exception):
@@ -107,17 +109,27 @@ def save_settings(settings):
     os.replace(tmp, SETTINGS)
 
 
+def is_our_hook(hook, script):
+    if not isinstance(hook, dict) or hook.get("type") != "command" or "args" in hook:
+        return False
+    command = hook.get("command")
+    if not isinstance(command, str):
+        return False
+    match = re.fullmatch(r'(?:python|"[^"]+")[ \t]+"([^"]+)"', command.strip())
+    return match is not None and ntpath.normcase(match[1]) == script
+
+
 def strip_our_hooks(settings):
     """Removes only this widget's entries, keeping everything else."""
     hooks = settings.get("hooks", {})
+    script = ntpath.normcase(os.path.join(INSTALL_DIR, "hook.py"))
     for event in list(hooks):
         groups = []
         for group in hooks[event] if isinstance(hooks[event], list) else []:
             if not isinstance(group, dict):
                 groups.append(group)
                 continue
-            inner = [h for h in group.get("hooks", [])
-                     if not (isinstance(h, dict) and MARKER in str(h.get("command", "")))]
+            inner = [h for h in group.get("hooks", []) if not is_our_hook(h, script)]
             if inner:
                 groups.append({**group, "hooks": inner})
         if groups:

@@ -48,13 +48,19 @@ def inside_claude_dir(path):
         return False
 
 
-def ended_with_question(transcript_path):
+def is_question(text):
+    return bool(text) and text.rstrip().rstrip("*_`\"')»”").endswith("?")
+
+
+def ended_with_question(transcript_path, last_assistant_message=None):
     """True if Claude's last turn ended by asking the user something.
 
-    Walks the transcript back to the user's prompt that started the turn, looking for
-    the Claude desktop app's next-step question (a wrap_up tool call with "ask") or,
-    elsewhere, a final message that ends with a question mark.
+    Prefer the Stop payload for the final text. The transcript can also contain the
+    Claude desktop app's next-step question (a wrap_up tool call with "ask").
     """
+    final_text = last_assistant_message if isinstance(last_assistant_message, str) else None
+    if is_question(final_text):
+        return True
     if not isinstance(transcript_path, str) or not inside_claude_dir(transcript_path):
         return False
     try:
@@ -65,7 +71,6 @@ def ended_with_question(transcript_path):
     except OSError:
         return False
 
-    final_text = None
     for line in reversed(lines):
         try:
             entry = json.loads(line)
@@ -90,7 +95,7 @@ def ended_with_question(transcript_path):
                     return True
             if block.get("type") == "text" and final_text is None and isinstance(block.get("text"), str):
                 final_text = block["text"]
-    return bool(final_text) and final_text.rstrip().rstrip("*_`\"')»”").endswith("?")
+    return is_question(final_text)
 
 
 def state_for(event):
@@ -100,7 +105,7 @@ def state_for(event):
 
     if name == "SessionEnd":
         return None, ""
-    if name == "Stop" and ended_with_question(event.get("transcript_path")):
+    if name == "Stop" and ended_with_question(event.get("transcript_path"), event.get("last_assistant_message")):
         return "waiting", "question for you"
     if name in ("SessionStart", "Stop", "StopFailure"):
         return "idle", ""
