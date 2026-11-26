@@ -12,7 +12,9 @@ A dot on the Windows taskbar that shows what Claude Code is doing at a glance:
 | 🟢 **Solid green** | Ready for the next request |
 | ⚫ **Gray** | No Claude Code session open |
 
-Requirements: **Windows 10 or 11**, Claude Code, and Python with Tkinter. The installer accepts Python 3.8+, but Python 3.8 no longer receives security updates. Use Python 3.12 or another supported release for new installations.
+Requirements: **Windows 10 or 11**, **Claude Code 2.1.78 or later**, and Python with Tkinter. [Claude Code 2.1.78](https://github.com/anthropics/claude-code/blob/v2.1.78/CHANGELOG.md#L3-L5) introduced the `StopFailure` hook that the widget registers.
+
+The installer accepts Python 3.8+, but Python 3.8 no longer receives security updates. Use Python 3.12 or another supported release for new installations.
 
 ## Install (the easy way)
 
