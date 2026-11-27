@@ -14,6 +14,8 @@ A dot on the Windows taskbar that shows what Claude Code is doing at a glance:
 
 Requirements: **Windows 10 or 11**, **Claude Code 2.1.78 or later**, and Python with Tkinter. [Claude Code 2.1.78](https://github.com/anthropics/claude-code/blob/v2.1.78/CHANGELOG.md#L3-L5) introduced the `StopFailure` hook that the widget registers.
 
+Before changing any files, the installer runs `claude --version` and stops if the installed version is too old. If it cannot determine the version, it warns and continues.
+
 The installer accepts Python 3.8+, but Python 3.8 no longer receives security updates. Use Python 3.12 or another supported release for new installations.
 
 ## Install (the easy way)

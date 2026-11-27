@@ -31,6 +31,7 @@ INSTALL_DIR = os.path.join(CLAUDE_DIR, "claude-status-widget")
 QUIT_FLAG = os.path.join(INSTALL_DIR, "quit.flag")
 MARKER = "claude-status-widget"
 FILES = ("hook.py", "widget.py", "install.py", "README.md")
+MIN_CLAUDE_VERSION = (2, 1, 78)
 SINGLE_INSTANCE_PORT = 47653  # same as in widget.py
 STARTUP_VBS = os.path.join(
     os.environ.get("APPDATA", ""), "Microsoft", "Windows", "Start Menu", "Programs", "Startup",
@@ -58,6 +59,34 @@ def check_requirements():
         import tkinter  # noqa: F401
     except ImportError:
         raise InstallError("This Python has no Tkinter. Install Python from python.org or the Microsoft Store.")
+
+
+def parse_claude_version(output):
+    match = re.match(r"^\s*v?([0-9]+)\.([0-9]+)\.([0-9]+)(?=\s|$)", output)
+    return tuple(map(int, match.groups())) if match else None
+
+
+def check_claude_version():
+    claude = shutil.which("claude") or shutil.which("claude.cmd")
+    if not claude:
+        print("Warning: Claude Code was not found on PATH; skipping the version check.", file=sys.stderr)
+        return
+
+    try:
+        result = subprocess.run([claude, "--version"], capture_output=True, text=True,
+                                errors="replace", check=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        print("Warning: could not run 'claude --version'; skipping the version check.", file=sys.stderr)
+        return
+
+    version = parse_claude_version(result.stdout)
+    if version is None:
+        print("Warning: could not identify the Claude Code version; skipping the version check.", file=sys.stderr)
+    elif version < MIN_CLAUDE_VERSION:
+        minimum = ".".join(map(str, MIN_CLAUDE_VERSION))
+        found = ".".join(map(str, version))
+        raise InstallError(f"Claude Code {minimum} or newer is required (found {found}). "
+                           "Update Claude Code and try again. Nothing was changed.")
 
 
 def python_paths():
@@ -198,6 +227,7 @@ def source_version():
 
 def install(startup, start):
     check_requirements()
+    check_claude_version()
     python, pythonw = python_paths()
     settings = load_settings()  # validate before touching anything
 

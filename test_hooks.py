@@ -1,8 +1,11 @@
+import io
 import json
 import ntpath
 import os
+import subprocess
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 from unittest.mock import patch
 
@@ -32,6 +35,53 @@ class StopTests(unittest.TestCase):
 
 
 class InstallerTests(unittest.TestCase):
+    def test_parse_claude_version(self):
+        self.assertEqual(install.parse_claude_version("2.1.100 (Claude Code)\n"), (2, 1, 100))
+        self.assertIsNone(install.parse_claude_version("unknown"))
+
+    def test_supported_version_accepts_windows_cmd(self):
+        claude = r"C:\Program Files\nodejs\claude.cmd"
+        for version in ("2.1.78", "2.1.100"):
+            with self.subTest(version=version), patch.object(install.shutil, "which", side_effect=[None, claude]), \
+                    patch.object(install.subprocess, "run") as run, redirect_stderr(io.StringIO()) as stderr:
+                run.return_value.stdout = f"{version} (Claude Code)\n"
+                install.check_claude_version()
+                self.assertEqual(run.call_args.args[0], [claude, "--version"])
+                self.assertEqual(stderr.getvalue(), "")
+
+    def test_old_version_exits_before_touching_settings(self):
+        with patch.object(install, "check_requirements"), patch.object(install.sys, "argv", ["install.py"]), \
+                patch.object(install.shutil, "which", return_value="claude"), \
+                patch.object(install.subprocess, "run") as run, \
+                patch.object(install, "load_settings") as load_settings, redirect_stderr(io.StringIO()) as stderr:
+            run.return_value.stdout = "2.1.77 (Claude Code)\n"
+            with self.assertRaises(SystemExit) as error:
+                install.main()
+            self.assertEqual(error.exception.code, 1)
+            self.assertIn("Claude Code 2.1.78 or newer is required (found 2.1.77)", stderr.getvalue())
+            load_settings.assert_not_called()
+
+    def test_missing_claude_warns_and_continues(self):
+        with patch.object(install.shutil, "which", return_value=None), \
+                patch.object(install.subprocess, "run") as run, redirect_stderr(io.StringIO()) as stderr:
+            install.check_claude_version()
+            self.assertIn("not found on PATH", stderr.getvalue())
+            run.assert_not_called()
+
+    def test_unknown_version_warns_and_continues(self):
+        with patch.object(install.shutil, "which", return_value="claude"), \
+                patch.object(install.subprocess, "run") as run, redirect_stderr(io.StringIO()) as stderr:
+            run.return_value.stdout = "unknown version"
+            install.check_claude_version()
+            self.assertIn("could not identify the Claude Code version", stderr.getvalue())
+
+    def test_version_command_timeout_warns_and_continues(self):
+        with patch.object(install.shutil, "which", return_value="claude"), \
+                patch.object(install.subprocess, "run", side_effect=subprocess.TimeoutExpired("claude", 5)), \
+                redirect_stderr(io.StringIO()) as stderr:
+            install.check_claude_version()
+            self.assertIn("could not run 'claude --version'", stderr.getvalue())
+
     def test_registers_failure_handlers(self):
         settings = {}
         install.add_our_hooks(settings, "python.exe")
