@@ -12,13 +12,17 @@ A dot on the Windows taskbar that shows what Claude Code is doing at a glance:
 | 🟢 **Solid green** | Ready for the next request |
 | ⚫ **Gray** | No Claude Code session open |
 
-Requirements: **Windows 10 or 11**, Python 3.8+ and Claude Code.
+Requirements: **Windows 10 or 11**, **Claude Code 2.1.78 or later**, and Python with Tkinter. [Claude Code 2.1.78](https://github.com/anthropics/claude-code/blob/v2.1.78/CHANGELOG.md#L3-L5) introduced the `StopFailure` hook that the widget registers.
+
+Before changing any files, the installer runs `claude --version` and stops if the installed version is too old. If it cannot determine the version, it warns and continues.
+
+The installer accepts Python 3.8+, but Python 3.8 no longer receives security updates. Use Python 3.12 or another supported release for new installations.
 
 ## Install (the easy way)
 
 Open Claude Code and send:
 
-> Install the widget from this repository: https://github.com/alberthamoui/claude-widget
+> Install the widget from this repository: https://github.com/alberthamoui/claude-status-widget
 
 Claude will download the project, show you what will change on your PC and ask for your confirmation before installing.
 
@@ -29,7 +33,7 @@ Claude will download the project, show you what will change on your PC and ask f
 1. **Check the system.** The widget currently only works on Windows 10 and 11. On macOS, Linux or anything else, tell the user it isn't supported yet and stop: don't clone, install Python or change any settings.
 All commands below work as written in both Git Bash (the shell Claude Code uses on Windows) and PowerShell. Don't use `%USERPROFILE%`: it only works in the old Command Prompt.
 
-2. **Check Python:** `python -c "import sys, tkinter; print(sys.version)"`. It must be 3.8+ and have Tkinter.
+2. **Check Python:** `python -c "import sys, tkinter; print(sys.version)"`. It must have Tkinter and be at least 3.8; use a supported release as noted above.
    - If `python` isn't found, prints nothing, or opens the Microsoft Store (Windows' placeholder), try `py -3 -c "import sys, tkinter; print(sys.version)"`.
    - If neither works, install Python **(confirm)**:
      ```bash
@@ -37,15 +41,15 @@ All commands below work as written in both Git Bash (the shell Claude Code uses 
      ```
      The current shell won't see it on the PATH yet, so in the next steps call it by its full path: `"$LOCALAPPDATA/Programs/Python/Python312/python.exe"`.
    - Use the command that worked (`python`, `py -3` or the full path) wherever the steps below say `python`.
-3. **Download the repository** **(confirm the folder)**, for example into `$HOME/claude-widget`:
+3. **Download the repository** **(confirm the folder)**, for example into `$HOME/claude-status-widget`:
    ```bash
-   git clone https://github.com/alberthamoui/claude-widget.git "$HOME/claude-widget"
+   git clone https://github.com/alberthamoui/claude-status-widget.git "$HOME/claude-status-widget"
    ```
-   If it already exists, update it instead: `git -C "$HOME/claude-widget" pull`.
+   If it already exists, update it instead: `git -C "$HOME/claude-status-widget" pull`.
 4. **Read `install.py` before running it.** It's short and states at the top everything it changes.
 5. **Install** **(confirm)**. Show the user what will change: `~/.claude/settings.json` gets hooks added, with a backup first. Also ask whether they want the widget to open when Windows starts.
    ```bash
-   python "$HOME/claude-widget/install.py" --startup
+   python "$HOME/claude-status-widget/install.py" --startup
    ```
    Without opening on Windows startup: the same command without `--startup`.
 6. **Check** that the installer ended with `Done.` and that the dot appeared on the taskbar, just left of the Start button.
@@ -58,8 +62,8 @@ If `install.py` prints `Error:`, it changed nothing. Show the message to the use
 ## Install manually
 
 ```bash
-git clone https://github.com/alberthamoui/claude-widget.git
-cd claude-widget
+git clone https://github.com/alberthamoui/claude-status-widget.git
+cd claude-status-widget
 python install.py --startup
 ```
 
@@ -70,9 +74,11 @@ The installer copies the files to `~/.claude/claude-status-widget/`. After that,
 Download the new version and run the installer again (in PowerShell or Git Bash). It closes the old widget, replaces the files and opens the new one, without duplicating the hooks:
 
 ```bash
-git -C "$HOME/claude-widget" pull
-python "$HOME/claude-widget/install.py" --startup
+git -C "$HOME/claude-status-widget" pull
+python "$HOME/claude-status-widget/install.py" --startup
 ```
+
+If you cloned it into a different folder, use that path in both commands.
 
 ## Usage
 
@@ -110,18 +116,18 @@ Claude Code ──(official hooks)──► hook.py ──► ~/.claude/claude-s
                                          widget.py (Tkinter) reads every 400 ms
 ```
 
-- **Capture:** through [Claude Code hooks](https://docs.claude.com/en/docs/claude-code/hooks), the official event system. It doesn't depend on reading the screen or network traffic.
+- **Capture:** through [Claude Code hooks](https://code.claude.com/docs/en/hooks), the official event system. It doesn't depend on reading the screen or network traffic.
 - **Bridge:** one JSON file per session, written atomically.
 - **Interface:** Python + Tkinter, both included with Python. No `pip install`.
 
 | Hook event | State |
 |---|---|
-| `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PreCompact` | thinking |
+| `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PreCompact` | thinking |
 | `PermissionRequest`, `PreToolUse` for `AskUserQuestion`/`ExitPlanMode`, `Notification` of type `permission_prompt`/`elicitation_dialog`, `Stop` after a reply that ends with a question | waiting for you |
-| `SessionStart`, `Stop`, `Notification` of type `idle_prompt` (unless a question is pending) | ready |
-
-On `Stop`, the hook reads the end of the transcript to tell "done" from "done, and asking you something": a question in the Claude desktop app's next-step box, or a final message ending with `?`.
+| `SessionStart`, `Stop`, `StopFailure`, `Notification` of type `idle_prompt` (unless a question is pending) | ready |
 | `SessionEnd` | removes the session |
+
+On `Stop`, the hook checks whether the final reply ends in `?`, using the hook payload when it contains the reply and falling back to the transcript otherwise. It also checks the transcript for the Claude desktop app's next-step question.
 
 Esc doesn't fire any hook. So the widget checks the last lines of the session transcript and, if it finds `[Request interrupted by user`, shows "Ready".
 
@@ -147,7 +153,7 @@ See [SECURITY.md](SECURITY.md): what the widget reads and writes, what it never 
 The install was tested from a fresh clone, following the steps above in Git Bash, with a user name that has an accent and a space. These cases haven't been tested yet. If you run into one, please open an issue.
 
 - **PC without Python:** installing Python with `winget` (step 2 of the instructions) was never run for real.
-- **Python 3.8:** only the syntax was checked; the code has only run on Python 3.11.
+- **Python 3.8:** only the syntax was checked, not runtime behavior.
 - **Windows 10:** only tested on Windows 11. The Windows 10 taskbar is different, so the dot may sit in a slightly different place.
 - **Opening conversations from the menu:** may not work if the Claude desktop app was installed differently, because its data can live in another folder. In that case conversations just show grayed out.
 - **Another person's Claude reading this README:** never tested end to end. It will ask for confirmation before changing `settings.json`, which is expected.

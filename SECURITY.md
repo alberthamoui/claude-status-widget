@@ -7,7 +7,7 @@ The widget runs inside your Claude Code (its hooks are called on every Claude ac
 | | |
 |---|---|
 | **Writes** | `~/.claude/claude-status-widget/`: the copied files, one JSON per session and the widget settings. It also adds its own hooks to `~/.claude/settings.json`, with a backup first, and, only with `--startup`, creates `ClaudeStatusWidget.vbs` in the Windows Startup folder. |
-| **Reads** | The JSON Claude Code hands to the hook and the end of the session transcript (only `.jsonl` files inside `~/.claude`): the widget reads the last ~6 KB to detect Esc, and the hook reads the last 256 KB on `Stop` to see whether the reply ended with a question. Nothing read from the transcript is stored. When you open the right-click menu, the widget also reads the Claude desktop app's conversation files to match sessions to conversations, using only their ids and archived flag. |
+| **Reads** | The JSON Claude Code hands to the hook and the end of the session transcript (only `.jsonl` files inside `~/.claude`): the widget reads the last ~6 KB to detect Esc. On `Stop`, the hook can read the last 256 KB to detect a desktop next-step question or fall back when the payload lacks the final reply. Neither the reply nor the transcript content is stored. When you open the right-click menu, the widget also reads the Claude desktop app's conversation files to match sessions to conversations, using only their ids and archived flag. |
 | **Opens** | A `claude://code/continue?session=local_...` link, only when you left-click a session in the menu. The id must match the app's exact format (`local_` plus letters, digits and `-`), so nothing else can get into the link. |
 | **Stores per session** | State, tool name (e.g. `Bash`), project folder, transcript path, timestamps and the start of Claude Code notification text (e.g. "Claude needs your permission to use Bash"). |
 
@@ -17,7 +17,7 @@ The widget runs inside your Claude Code (its hooks are called on every Claude ac
 - **Content:** it doesn't store prompts, responses, commands or file contents. The hooks' `tool_input` is ignored.
 - **Dependencies:** it installs nothing. It's just the Python standard library, so there's no third-party package to be compromised.
 - **Getting in Claude's way:** the hook never prints anything (for some events that would become model context), always exits with code 0 (never blocks an action), has a 5 s timeout and ignores any error.
-- **Touching other hooks:** hooks already in `settings.json` are kept. Uninstalling removes only the entries containing `claude-status-widget`.
+- **Touching other hooks:** hooks already in `settings.json` are kept. Uninstalling removes only entries in the widget's command formats pointing at its installed `hook.py`.
 
 ## Protections against forged data
 

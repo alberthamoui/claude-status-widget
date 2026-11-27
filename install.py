@@ -15,7 +15,9 @@ Existing hooks are kept; only this widget's entries are replaced.
 Running it again updates the installation without duplicating anything.
 """
 import json
+import ntpath
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -29,6 +31,7 @@ INSTALL_DIR = os.path.join(CLAUDE_DIR, "claude-status-widget")
 QUIT_FLAG = os.path.join(INSTALL_DIR, "quit.flag")
 MARKER = "claude-status-widget"
 FILES = ("hook.py", "widget.py", "install.py", "README.md")
+MIN_CLAUDE_VERSION = (2, 1, 78)
 SINGLE_INSTANCE_PORT = 47653  # same as in widget.py
 STARTUP_VBS = os.path.join(
     os.environ.get("APPDATA", ""), "Microsoft", "Windows", "Start Menu", "Programs", "Startup",
@@ -36,8 +39,8 @@ STARTUP_VBS = os.path.join(
 )
 
 # Events without a matcher | tool events (matcher "*")
-PLAIN_EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "PreCompact", "SessionEnd"]
-TOOL_EVENTS = ["PreToolUse", "PermissionRequest", "PostToolUse", "Notification"]
+PLAIN_EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "PreCompact", "SessionEnd"]
+TOOL_EVENTS = ["PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "Notification"]
 
 
 class InstallError(Exception):
@@ -56,6 +59,49 @@ def check_requirements():
         import tkinter  # noqa: F401
     except ImportError:
         raise InstallError("This Python has no Tkinter. Install Python from python.org or the Microsoft Store.")
+
+
+def parse_claude_version(output):
+    match = re.match(r"^\s*v?([0-9]+)\.([0-9]+)\.([0-9]+)(?=\s|$)", output)
+    return tuple(map(int, match.groups())) if match else None
+
+
+def find_claude_cli():
+    cwd = os.path.normcase(os.path.realpath(os.curdir))
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        if not entry:
+            continue
+        directory = os.path.abspath(entry)
+        if os.path.normcase(os.path.realpath(directory)) == cwd:
+            continue
+        for name in ("claude.exe", "claude.cmd"):
+            claude = shutil.which(os.path.join(directory, name))
+            if claude:
+                return claude
+    return None
+
+
+def check_claude_version():
+    claude = find_claude_cli()
+    if not claude:
+        print("Warning: Claude Code was not found on PATH; skipping the version check.", file=sys.stderr)
+        return
+
+    try:
+        result = subprocess.run([claude, "--version"], capture_output=True, text=True,
+                                errors="replace", check=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        print("Warning: could not run 'claude --version'; skipping the version check.", file=sys.stderr)
+        return
+
+    version = parse_claude_version(result.stdout)
+    if version is None:
+        print("Warning: could not identify the Claude Code version; skipping the version check.", file=sys.stderr)
+    elif version < MIN_CLAUDE_VERSION:
+        minimum = ".".join(map(str, MIN_CLAUDE_VERSION))
+        found = ".".join(map(str, version))
+        raise InstallError(f"Claude Code {minimum} or newer is required (found {found}). "
+                           "Update Claude Code and try again. Nothing was changed.")
 
 
 def python_paths():
@@ -107,17 +153,27 @@ def save_settings(settings):
     os.replace(tmp, SETTINGS)
 
 
+def is_our_hook(hook, script):
+    if not isinstance(hook, dict) or hook.get("type") != "command" or "args" in hook:
+        return False
+    command = hook.get("command")
+    if not isinstance(command, str):
+        return False
+    match = re.fullmatch(r'(?:python|"[^"]+")[ \t]+"([^"]+)"', command.strip())
+    return match is not None and ntpath.normcase(match[1]) == script
+
+
 def strip_our_hooks(settings):
     """Removes only this widget's entries, keeping everything else."""
     hooks = settings.get("hooks", {})
+    script = ntpath.normcase(os.path.join(INSTALL_DIR, "hook.py"))
     for event in list(hooks):
         groups = []
         for group in hooks[event] if isinstance(hooks[event], list) else []:
             if not isinstance(group, dict):
                 groups.append(group)
                 continue
-            inner = [h for h in group.get("hooks", [])
-                     if not (isinstance(h, dict) and MARKER in str(h.get("command", "")))]
+            inner = [h for h in group.get("hooks", []) if not is_our_hook(h, script)]
             if inner:
                 groups.append({**group, "hooks": inner})
         if groups:
@@ -186,6 +242,7 @@ def source_version():
 
 def install(startup, start):
     check_requirements()
+    check_claude_version()
     python, pythonw = python_paths()
     settings = load_settings()  # validate before touching anything
 
