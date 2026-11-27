@@ -66,8 +66,23 @@ def parse_claude_version(output):
     return tuple(map(int, match.groups())) if match else None
 
 
+def find_claude_cli():
+    cwd = os.path.normcase(os.path.realpath(os.curdir))
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        if not entry:
+            continue
+        directory = os.path.abspath(entry)
+        if os.path.normcase(os.path.realpath(directory)) == cwd:
+            continue
+        for name in ("claude.exe", "claude.cmd"):
+            claude = shutil.which(os.path.join(directory, name))
+            if claude:
+                return claude
+    return None
+
+
 def check_claude_version():
-    claude = shutil.which("claude") or shutil.which("claude.cmd")
+    claude = find_claude_cli()
     if not claude:
         print("Warning: Claude Code was not found on PATH; skipping the version check.", file=sys.stderr)
         return

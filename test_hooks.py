@@ -42,7 +42,7 @@ class InstallerTests(unittest.TestCase):
     def test_supported_version_accepts_windows_cmd(self):
         claude = r"C:\Program Files\nodejs\claude.cmd"
         for version in ("2.1.78", "2.1.100"):
-            with self.subTest(version=version), patch.object(install.shutil, "which", side_effect=[None, claude]), \
+            with self.subTest(version=version), patch.object(install, "find_claude_cli", return_value=claude), \
                     patch.object(install.subprocess, "run") as run, redirect_stderr(io.StringIO()) as stderr:
                 run.return_value.stdout = f"{version} (Claude Code)\n"
                 install.check_claude_version()
@@ -51,7 +51,7 @@ class InstallerTests(unittest.TestCase):
 
     def test_old_version_exits_before_touching_settings(self):
         with patch.object(install, "check_requirements"), patch.object(install.sys, "argv", ["install.py"]), \
-                patch.object(install.shutil, "which", return_value="claude"), \
+                patch.object(install, "find_claude_cli", return_value="claude"), \
                 patch.object(install.subprocess, "run") as run, \
                 patch.object(install, "load_settings") as load_settings, redirect_stderr(io.StringIO()) as stderr:
             run.return_value.stdout = "2.1.77 (Claude Code)\n"
@@ -62,25 +62,46 @@ class InstallerTests(unittest.TestCase):
             load_settings.assert_not_called()
 
     def test_missing_claude_warns_and_continues(self):
-        with patch.object(install.shutil, "which", return_value=None), \
+        with patch.object(install, "find_claude_cli", return_value=None), \
                 patch.object(install.subprocess, "run") as run, redirect_stderr(io.StringIO()) as stderr:
             install.check_claude_version()
             self.assertIn("not found on PATH", stderr.getvalue())
             run.assert_not_called()
 
     def test_unknown_version_warns_and_continues(self):
-        with patch.object(install.shutil, "which", return_value="claude"), \
+        with patch.object(install, "find_claude_cli", return_value="claude"), \
                 patch.object(install.subprocess, "run") as run, redirect_stderr(io.StringIO()) as stderr:
             run.return_value.stdout = "unknown version"
             install.check_claude_version()
             self.assertIn("could not identify the Claude Code version", stderr.getvalue())
 
     def test_version_command_timeout_warns_and_continues(self):
-        with patch.object(install.shutil, "which", return_value="claude"), \
+        with patch.object(install, "find_claude_cli", return_value="claude"), \
                 patch.object(install.subprocess, "run", side_effect=subprocess.TimeoutExpired("claude", 5)), \
                 redirect_stderr(io.StringIO()) as stderr:
             install.check_claude_version()
             self.assertIn("could not run 'claude --version'", stderr.getvalue())
+
+    def test_version_lookup_skips_current_directory(self):
+        original_cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as directory:
+            cwd = Path(directory) / "project"
+            bin_dir = Path(directory) / "bin"
+            cwd.mkdir()
+            bin_dir.mkdir()
+            claude = bin_dir / "claude.cmd"
+            for file in (cwd / "claude.cmd", claude):
+                file.touch()
+                file.chmod(0o755)
+            os.chdir(cwd)
+            try:
+                path = os.pathsep.join(("", ".", str(cwd), str(bin_dir)))
+                with patch.dict(os.environ, {"PATH": path}), patch.object(install.subprocess, "run") as run:
+                    run.return_value.stdout = "2.1.78 (Claude Code)"
+                    install.check_claude_version()
+                    self.assertEqual(run.call_args.args[0], [str(claude), "--version"])
+            finally:
+                os.chdir(original_cwd)
 
     def test_registers_failure_handlers(self):
         settings = {}
